@@ -6,6 +6,7 @@ use std::task::{Context, Poll};
 
 /// Future for the [`freeze`](super::MultipartWriteExt::freeze) method.
 #[must_use = "futures do nothing unless polled"]
+#[derive(Debug)]
 #[pin_project::pin_project]
 pub struct Freeze<'a, W: ?Sized, P> {
     #[pin]

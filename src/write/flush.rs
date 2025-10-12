@@ -6,6 +6,7 @@ use std::task::{Context, Poll};
 
 /// Future for the [`flush`](super::MultipartWriteExt::flush) method.
 #[must_use = "futures do nothing unless polled"]
+#[derive(Debug)]
 #[pin_project::pin_project]
 pub struct Flush<'a, W: ?Sized, P> {
     #[pin]

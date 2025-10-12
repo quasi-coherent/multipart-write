@@ -7,6 +7,7 @@ use std::task::{self, Context, Poll};
 ///
 /// [`with`]: super::MultipartWriteExt::with
 #[must_use = "futures do nothing unless polled"]
+#[derive(Debug)]
 #[pin_project::pin_project]
 pub struct With<W, Q, Part, F, Fut> {
     #[pin]

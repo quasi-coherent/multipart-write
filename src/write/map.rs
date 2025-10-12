@@ -7,30 +7,24 @@ use std::task::{Context, Poll};
 ///
 /// [`map`]: super::MultipartWriteExt::map
 #[must_use = "futures do nothing unless polled"]
+#[derive(Debug)]
 #[pin_project::pin_project]
 pub struct Map<W, F> {
     #[pin]
     writer: W,
-    f: Option<F>,
+    f: F,
 }
 
 impl<W, F> Map<W, F> {
     pub(super) fn new(writer: W, f: F) -> Self {
-        Self { writer, f: Some(f) }
-    }
-
-    fn take_f(self: Pin<&mut Self>) -> F {
-        self.project()
-            .f
-            .take()
-            .expect("polled Map after completion")
+        Self { writer, f }
     }
 }
 
 impl<U, W, F, Part> MultipartWrite<Part> for Map<W, F>
 where
     W: MultipartWrite<Part>,
-    F: FnOnce(W::Output) -> U,
+    F: FnMut(W::Output) -> U,
 {
     type Ret = W::Ret;
     type Output = U;
@@ -56,6 +50,6 @@ where
             .project()
             .writer
             .poll_freeze(cx)
-            .map_ok(|v| self.as_mut().take_f()(v))
+            .map_ok(|v| (self.as_mut().project().f)(v))
     }
 }

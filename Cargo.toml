@@ -9,6 +9,10 @@ edition = "2024"
 authors = ["Daniel Donohue <d.michael.donohue@gmail.com>"]
 keywords = ["futures", "async", "sink"]
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [features]
 default = []
 tokio-io = ["dep:tokio", "tokio?/io-util"]

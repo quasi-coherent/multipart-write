@@ -19,8 +19,8 @@ pub fn async_write<W: AsyncWrite + Unpin + Default>(write: W) -> MultiAsyncWrite
 /// [`tokio::io::AsyncWrite`](tokio::io::AsyncWrite).
 ///
 /// [`MultipartWrite`]: crate::MultipartWrite
+#[derive(Debug, Default)]
 #[pin_project::pin_project]
-#[derive(Clone, Default)]
 pub struct MultiAsyncWriter<W: AsyncWrite> {
     #[pin]
     inner: W,

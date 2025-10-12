@@ -8,6 +8,7 @@ use std::task::{self, Context, Poll};
 /// implementation of the other trait.
 ///
 /// [`Sink`]: futures::sink::Sink
+#[derive(Debug)]
 #[pin_project::pin_project]
 pub struct MultipartWriterSink<W> {
     #[pin]

@@ -1,6 +1,6 @@
 use crate::MultipartWrite;
 
-use futures::future::Future;
+use futures::future::{FusedFuture, Future};
 use std::pin::Pin;
 use std::task::{self, Context, Poll};
 
@@ -8,6 +8,7 @@ use std::task::{self, Context, Poll};
 ///
 /// [`write_part`]: super::MultipartWriteExt::write_part
 #[must_use = "futures do nothing unless polled"]
+#[derive(Debug)]
 #[pin_project::pin_project]
 pub struct WritePart<'a, W: ?Sized, P> {
     #[pin]
@@ -24,6 +25,12 @@ impl<'a, W: MultipartWrite<P> + ?Sized + Unpin, P> WritePart<'a, W, P> {
             part: Some(part),
             _u: std::marker::PhantomPinned,
         }
+    }
+}
+
+impl<W: MultipartWrite<P> + Unpin, P> FusedFuture for WritePart<'_, W, P> {
+    fn is_terminated(&self) -> bool {
+        self.part.is_none()
     }
 }
 

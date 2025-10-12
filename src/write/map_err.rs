@@ -7,30 +7,24 @@ use std::task::{Context, Poll};
 ///
 /// [`map_err`]: super::MultipartWriteExt::map_err
 #[must_use = "futures do nothing unless polled"]
+#[derive(Debug)]
 #[pin_project::pin_project]
 pub struct MapErr<W, F> {
     #[pin]
     writer: W,
-    f: Option<F>,
+    f: F,
 }
 
 impl<W, F> MapErr<W, F> {
     pub(super) fn new(writer: W, f: F) -> Self {
-        Self { writer, f: Some(f) }
-    }
-
-    fn take_f(self: Pin<&mut Self>) -> F {
-        self.project()
-            .f
-            .take()
-            .expect("polled MapErr after completion")
+        Self { writer, f }
     }
 }
 
 impl<W, F, Part, E> MultipartWrite<Part> for MapErr<W, F>
 where
     W: MultipartWrite<Part>,
-    F: FnOnce(W::Error) -> E,
+    F: FnMut(W::Error) -> E,
 {
     type Ret = W::Ret;
     type Output = W::Output;
@@ -41,7 +35,7 @@ where
             .project()
             .writer
             .poll_ready(cx)
-            .map_err(|e| self.as_mut().take_f()(e))
+            .map_err(|e| (self.as_mut().project().f)(e))
     }
 
     fn start_write(mut self: Pin<&mut Self>, part: Part) -> Result<Self::Ret, Self::Error> {
@@ -49,7 +43,7 @@ where
             .project()
             .writer
             .start_write(part)
-            .map_err(|e| self.as_mut().take_f()(e))
+            .map_err(|e| (self.as_mut().project().f)(e))
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -57,7 +51,7 @@ where
             .project()
             .writer
             .poll_flush(cx)
-            .map_err(|e| self.as_mut().take_f()(e))
+            .map_err(|e| (self.as_mut().project().f)(e))
     }
 
     fn poll_freeze(
@@ -68,6 +62,6 @@ where
             .project()
             .writer
             .poll_freeze(cx)
-            .map_err(|e| self.as_mut().take_f()(e))
+            .map_err(|e| (self.as_mut().project().f)(e))
     }
 }

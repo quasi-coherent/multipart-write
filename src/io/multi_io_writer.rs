@@ -9,7 +9,7 @@ use std::task::{Context, Poll};
 ///
 /// [`MultipartWrite`]: crate::MultipartWrite
 #[pin_project::pin_project]
-#[derive(Clone, Default)]
+#[derive(Debug, Default)]
 pub struct MultiIoWriter<W: Write> {
     inner: W,
 }

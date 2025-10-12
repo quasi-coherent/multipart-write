@@ -8,6 +8,7 @@ use std::task::{self, Context, Poll};
 ///
 /// [`frozen`]: super::MultipartWriteStreamExt::frozen
 #[must_use = "futures do nothing unless polled"]
+#[derive(Debug)]
 #[pin_project::pin_project]
 pub struct Frozen<St: Stream, W: MultipartWrite<St::Item>, F> {
     #[pin]
@@ -15,10 +16,11 @@ pub struct Frozen<St: Stream, W: MultipartWrite<St::Item>, F> {
     #[pin]
     writer: StreamWriter<W, St::Item, F>,
     state: State,
+    terminated: bool,
 }
 
 // To track state transitions between polling the writer or stream.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum State {
     Next,
     // The next state should be `Self::Shutdown` when the inner bool is `true`,
@@ -38,6 +40,7 @@ where
             stream,
             writer: StreamWriter::new(writer, f),
             state: State::Next,
+            terminated: false,
         }
     }
 }
@@ -49,7 +52,7 @@ where
     F: FnMut(W::Ret) -> bool,
 {
     fn is_terminated(&self) -> bool {
-        self.stream.is_terminated() && self.state == State::Shutdown
+        self.terminated
     }
 }
 
@@ -73,7 +76,10 @@ where
         match *this.state {
             // Polling the stream on the last iteration produced `None`, so we
             // need to also produce `None`, ending the stream.
-            State::Shutdown => return Poll::Ready(None),
+            State::Shutdown => {
+                *this.terminated = true;
+                return Poll::Ready(None);
+            }
             // The state returned by the inner writer says that it was ready to
             // call `poll_freeze` on, or the stream did not produce the next item
             // to give to the writer and we shortcut to freezing, in this case for
@@ -133,6 +139,7 @@ where
     }
 }
 
+#[derive(Debug)]
 #[pin_project::pin_project]
 struct StreamWriter<W, P, F> {
     #[pin]

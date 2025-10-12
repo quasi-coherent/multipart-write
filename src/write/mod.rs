@@ -14,6 +14,9 @@ use std::task::{Context, Poll};
 mod buffered;
 pub use buffered::Buffered;
 
+mod collect_parts;
+pub use collect_parts::CollectParts;
+
 mod flush;
 pub use flush::Flush;
 
@@ -184,6 +187,18 @@ pub trait MultipartWriteStreamExt<Part>: Stream<Item = Part> {
         Self: Sized,
     {
         Frozen::new(self, writer, f)
+    }
+
+    /// Transforms a stream into parts for a writer, returning a future
+    /// representing the result of freezing the writer.
+    ///
+    /// The returned future will be resolved when the stream terminates.
+    fn collect_parts<W>(self, writer: W) -> CollectParts<Self, W>
+    where
+        W: MultipartWrite<Part>,
+        Self: Sized,
+    {
+        CollectParts::new(self, writer)
     }
 }
 

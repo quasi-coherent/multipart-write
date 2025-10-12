@@ -8,6 +8,7 @@ use std::task::{self, Context, Poll};
 ///
 /// [`buffered`]: super::MultipartWriteExt::buffered
 #[must_use = "futures do nothing unless polled"]
+#[derive(Debug)]
 #[pin_project::pin_project]
 pub struct Buffered<W, P> {
     #[pin]
