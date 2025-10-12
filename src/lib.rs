@@ -1,27 +1,31 @@
 //! # multipart-write
 //!
-//! This crate contains the trait [MultipartWrite] and assorted implementations
+//! This crate contains the trait [`MultipartWrite`] and assorted implementations
 //! and convenience combinators.
 //!
-//! A [MultipartWrite] is a similar interface as [Sink], except that it allows
-//! returning a value when writing a part or completing the overall write.
+//! A [`MultipartWrite`] is a similar interface as [`Sink`], except that it
+//! allows returning a value when writing a part or completing the overall
+//! write.
 //!
-//! [Sink]: futures::sink::Sink
+//! [`Sink`]: futures::sink::Sink
+#![cfg_attr(docsrs, feature(doc_cfg))]
 use std::ops::DerefMut;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+pub mod io;
 pub mod write;
 
+/// A prelude for this crate.
 pub mod prelude {
-    pub use super::write::MultipartWriteExt as _;
-    pub use super::write::MultipartWriteStreamExt as _;
+    pub use super::MultipartWrite;
+    pub use super::write::{self, MultipartWriteExt as _, MultipartWriteStreamExt as _};
 }
 
-/// `MultipartWrite` is a [Sink]-like interface for asynchronously writing an
+/// `MultipartWrite` is a [`Sink`]-like interface for asynchronously writing an
 /// object in parts.
 ///
-/// [Sink]: futures::sink::Sink
+/// [`Sink`]: futures::sink::Sink
 pub trait MultipartWrite<Part> {
     /// The type of value returned when writing the part began successfully.
     type Ret;
@@ -45,16 +49,17 @@ pub trait MultipartWrite<Part> {
     /// Begin the process of writing a part to this writer, returning the
     /// associated type confirming this was done successfully.
     ///
-    /// Like [Sink], this should be preceded by a call to `poll_ready` that
+    /// Like [`Sink`], this should be preceded by a call to `poll_ready` that
     /// returns `Poll::Ready` to ensure that the `MultipartWrite` is ready to
     /// receive a new part.
     ///
     /// # Errors
     ///
     /// Errors returned by this method are implementation-specific, but it is
-    /// always an error to call `start_write` when the writer is not available.
+    /// always an error to call `start_write` when `poll_ready` would return
+    /// `Poll::Pending`.
     ///
-    /// [Sink]: futures::sink::Sink
+    /// [`Sink`]: futures::sink::Sink
     fn start_write(self: Pin<&mut Self>, part: Part) -> Result<Self::Ret, Self::Error>;
 
     /// Flush any remaining output from the writer.

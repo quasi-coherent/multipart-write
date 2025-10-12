@@ -9,7 +9,15 @@ edition = "2024"
 authors = ["Daniel Donohue <d.michael.donohue@gmail.com>"]
 keywords = ["futures", "async", "sink"]
 
+[features]
+default = []
+tokio-io = ["dep:tokio", "tokio?/io-util"]
+
 [dependencies]
+bytes = "1.10.0"
 futures = "0.3.31"
-parking_lot = "0.12.5"
 pin-project = "1.1.10"
+tokio = { version = "1.47.0", default-features = false, optional = true }
+
+[dev-dependencies]
+tokio = { version = "1.47.0", default-features = false, features = ["macros", "rt-multi-thread"] }

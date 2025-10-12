@@ -4,7 +4,7 @@ use futures::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-/// Future for the [`freeze`](super::MultipartWriteExt::freeze) method.
+/// Future for the [`flush`](super::MultipartWriteExt::flush) method.
 #[must_use = "futures do nothing unless polled"]
 #[pin_project::pin_project]
 pub struct Flush<'a, W: ?Sized, P> {
@@ -27,7 +27,6 @@ impl<'a, W: MultipartWrite<P> + ?Sized + Unpin, P> Flush<'a, W, P> {
 
 impl<W: MultipartWrite<P> + Unpin, P> Future for Flush<'_, W, P> {
     type Output = Result<(), W::Error>;
-
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         self.project().writer.as_mut().poll_flush(cx)
     }

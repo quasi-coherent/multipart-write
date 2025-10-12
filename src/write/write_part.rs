@@ -4,7 +4,9 @@ use futures::future::Future;
 use std::pin::Pin;
 use std::task::{self, Context, Poll};
 
-/// Future for the [`write_part`](super::MultipartWriteExt::write_part) method.
+/// Future for the [`write_part`] method.
+///
+/// [`write_part`]: super::MultipartWriteExt::write_part
 #[must_use = "futures do nothing unless polled"]
 #[pin_project::pin_project]
 pub struct WritePart<'a, W: ?Sized, P> {

@@ -51,9 +51,7 @@ where
         if self.capacity == 0 {
             return self.project().writer.poll_ready(cx);
         }
-
         let _ = self.as_mut().try_empty_buffer(cx)?;
-
         if self.buf.len() >= self.capacity {
             Poll::Pending
         } else {
@@ -67,7 +65,6 @@ where
         } else {
             self.project().buf.push_back(part);
         }
-
         Ok(())
     }
 

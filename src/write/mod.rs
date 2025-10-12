@@ -1,3 +1,9 @@
+//! `MultipartWrite` combinators.
+//!
+//! This module contains the traits [`MultipartWriteExt`] and
+//! [`MultipartWriteStreamExt`], which provide adapters for chaining and
+//! composing [`MultipartWrite`] types, or combining them with common [`futures`]
+//! interfaces.
 use crate::MultipartWrite;
 
 use futures::future::Future;
@@ -20,6 +26,9 @@ pub use map::Map;
 mod map_err;
 pub use map_err::MapErr;
 
+mod multipart_writer_sink;
+pub use multipart_writer_sink::MultipartWriterSink;
+
 mod then;
 pub use then::Then;
 
@@ -32,8 +41,8 @@ pub use with::With;
 mod write_part;
 pub use write_part::WritePart;
 
-/// An extension trait for `MultipartWrite`rs that provides a variety of
-/// convenient combinator functions.
+/// An extension trait for `MultipartWrite`rs providing a variety of convenient
+/// combinator functions.
 pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// Map this writer's output type to a different type, resulting in a new
     /// multipart writer of the resulting type.
@@ -87,6 +96,16 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         Self: Sized,
     {
         Buffered::new(self, capacity.into().unwrap_or_default())
+    }
+
+    /// Convert this writer into a [`Sink`].
+    ///
+    /// [`Sink`]: futures::sink::Sink
+    fn into_sink(self) -> MultipartWriterSink<Self>
+    where
+        Self: Sized,
+    {
+        MultipartWriterSink::new(self)
     }
 
     /// A future that completes when a part has been written to the writer.
@@ -145,12 +164,19 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     }
 }
 
+impl<W: MultipartWrite<Part>, Part> MultipartWriteExt<Part> for W {}
+
+/// A [`Stream`] extension for combining streams with [`MultipartWrite`]rs.
+///
+/// [`Stream`]: futures::stream::Stream
+/// [`MultipartWrite`]: crate::MultipartWrite
 pub trait MultipartWriteStreamExt<Part>: Stream<Item = Part> {
     /// Map this stream into a `MultipartWrite`, returning a new stream whose
     /// item type is the `MultiPartWrite`r's `Output` type.
     ///
-    /// Provide the closure with the logic to flush/freeze the writer given the
-    /// value returned by writing one part.
+    /// The function of the closure is to determine from the associated
+    /// [`MultipartWrite::Ret`] when it is appropriate to flush/freeze the writer
+    /// and produce the output as the next item in the stream.
     fn frozen<W, F>(self, writer: W, f: F) -> Frozen<Self, W, F>
     where
         W: MultipartWrite<Part>,
@@ -160,3 +186,5 @@ pub trait MultipartWriteStreamExt<Part>: Stream<Item = Part> {
         Frozen::new(self, writer, f)
     }
 }
+
+impl<St: Stream<Item = Part>, Part> MultipartWriteStreamExt<Part> for St {}
