@@ -39,9 +39,7 @@ pub trait MultipartWrite<Part> {
     /// another part written to it.
     ///
     /// This method returns `Poll::Pending` when the object being prepared cannot
-    /// accept another part.  In this case, `poll_freeze` should be called to
-    /// finish the multipart write of this object in order to begin writing a new
-    /// one.
+    /// accept another part.
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>>;
 
     /// Begin the process of writing a part to this writer, returning the

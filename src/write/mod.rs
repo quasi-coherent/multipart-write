@@ -78,13 +78,10 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         With::new(self, f)
     }
 
-    /// Buffer the output of this writer, returning writer outputs in the order
-    /// they complete.  This writer returns `Some(output)` until there is no more
-    /// buffered output.
+    /// Adds a fixed size buffer to the current writer.
     ///
-    /// The capacity imposes a limit on the number of concurrent writer's
-    /// completing the output.  A limit of `Some(0)` or `None` both correspond to
-    /// an unbounded buffer.
+    /// The resulting `MultipartWrite` will buffer up to `capacity` items when
+    /// the underlying writer is not able to accept new parts.
     fn buffered(self, capacity: impl Into<Option<usize>>) -> Buffered<Self, Part>
     where
         Self: Sized,
@@ -92,7 +89,7 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         Buffered::new(self, capacity.into().unwrap_or_default())
     }
 
-    /// Write a part to this writer.
+    /// A future that completes when a part has been written to the writer.
     fn write_part(&mut self, part: Part) -> WritePart<'_, Self, Part>
     where
         Self: Unpin,
@@ -100,7 +97,7 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         WritePart::new(self, part)
     }
 
-    /// Flushes this writer, ensuring all parts have been written.
+    /// A future that completes when the underlying writer has been flushed.
     fn flush(&mut self) -> Flush<'_, Self, Part>
     where
         Self: Unpin,
@@ -108,12 +105,33 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         Flush::new(self)
     }
 
-    /// Runs this writer to completion, returning the associated output.
+    /// A future that runs this writer to completion, returning the associated
+    /// output.
     fn freeze(&mut self) -> Freeze<'_, Self, Part>
     where
         Self: Unpin,
     {
         Freeze::new(self)
+    }
+
+    /// A convenience method for calling [`poll_ready`] on [`Unpin`] writer types.
+    ///
+    /// [`poll_ready`]: super::MultipartWrite::poll_ready
+    fn poll_ready_unpin(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>>
+    where
+        Self: Unpin,
+    {
+        Pin::new(self).poll_ready(cx)
+    }
+
+    /// A convenience method for calling [`poll_flush`] on [`Unpin`] writer types.
+    ///
+    /// [`poll_flush`]: super::MultipartWrite::poll_flush
+    fn poll_flush_unpin(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>>
+    where
+        Self: Unpin,
+    {
+        Pin::new(self).poll_flush(cx)
     }
 
     /// A convenience method for calling [`poll_freeze`] on [`Unpin`] writer types.
