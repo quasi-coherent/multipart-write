@@ -1,0 +1,15 @@
+[package]
+name = "multipart-write"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/quasi-coherent/multipart-write"
+readme = "README.md"
+description = "Sink-like interface for writing an object in parts"
+edition = "2024"
+authors = ["Daniel Donohue <d.michael.donohue@gmail.com>"]
+keywords = ["futures", "async", "sink"]
+
+[dependencies]
+futures = "0.3.31"
+parking_lot = "0.12.5"
+pin-project = "1.1.10"
