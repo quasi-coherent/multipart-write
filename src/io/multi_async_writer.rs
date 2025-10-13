@@ -81,9 +81,8 @@ impl<W: AsyncWrite + Default + Unpin> MultipartWrite<&[u8]> for MultiAsyncWriter
     }
 
     fn start_write(self: Pin<&mut Self>, part: &[u8]) -> Result<Self::Ret, Self::Error> {
-        let len = part.len();
         self.project().buf.extend_from_slice(part);
-        Ok(len)
+        Ok(part.len())
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
