@@ -61,7 +61,11 @@ where
             this.output.set(Some(fut));
         }
 
-        let fut = this.output.as_mut().as_pin_mut().unwrap();
+        let fut = this
+            .output
+            .as_mut()
+            .as_pin_mut()
+            .expect("polled Then after completion");
         let ret = task::ready!(fut.poll(cx));
         this.output.set(None);
 
