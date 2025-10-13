@@ -80,7 +80,7 @@ async fn writer_with() {
 async fn stream_frozen() {
     let writer = TestWriter::default();
     let stream = futures::stream::iter(1..=10);
-    let outputs = stream
+    let mut outputs = stream
         .frozen(writer, |n| n % 5 == 0)
         .collect::<Vec<_>>()
         .await
@@ -88,4 +88,9 @@ async fn stream_frozen() {
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
     assert_eq!(outputs.len(), 2);
+
+    let out2 = outputs.pop().unwrap();
+    let out1 = outputs.pop().unwrap();
+    assert_eq!(out1, vec![1, 2, 3, 4, 5]);
+    assert_eq!(out2, vec![6, 7, 8, 9, 10]);
 }
