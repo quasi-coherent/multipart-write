@@ -5,7 +5,7 @@ use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{self, Context, Poll};
 
-/// `MultipartWrite` for the [`frozen`] method on streams.
+/// Stream for the [`frozen`] method.
 ///
 /// [`frozen`]: super::MultipartWriteStreamExt::frozen
 #[must_use = "futures do nothing unless polled"]

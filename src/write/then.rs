@@ -55,16 +55,16 @@ where
     ) -> Poll<Result<Self::Output, Self::Error>> {
         let mut this = self.project();
 
-        if let Some(fut) = this.output.as_mut().as_pin_mut() {
-            let ret = task::ready!(fut.poll(cx));
-            this.output.set(None);
-
-            Poll::Ready(Ok(ret))
-        } else {
+        if this.output.is_none() {
             let ret = task::ready!(this.writer.poll_freeze(cx))?;
             let fut = (this.f)(ret);
             this.output.set(Some(fut));
-            Poll::Pending
         }
+
+        let fut = this.output.as_mut().as_pin_mut().unwrap();
+        let ret = task::ready!(fut.poll(cx));
+        this.output.set(None);
+
+        Poll::Ready(Ok(ret))
     }
 }

@@ -12,12 +12,12 @@ use std::task::{self, Context, Poll};
 #[pin_project::pin_project]
 pub struct MultipartWriterSink<W> {
     #[pin]
-    writer: W,
+    inner: W,
 }
 
 impl<W> MultipartWriterSink<W> {
-    pub fn new(writer: W) -> Self {
-        Self { writer }
+    pub fn new(inner: W) -> Self {
+        Self { inner }
     }
 }
 
@@ -28,20 +28,20 @@ where
     type Error = W::Error;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.project().writer.poll_ready(cx)
+        self.project().inner.poll_ready(cx)
     }
 
     fn start_send(self: Pin<&mut Self>, item: P) -> Result<(), Self::Error> {
-        let _ = self.project().writer.start_write(item)?;
+        let _ = self.project().inner.start_write(item)?;
         Ok(())
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.project().writer.poll_flush(cx)
+        self.project().inner.poll_flush(cx)
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        let _ = task::ready!(self.project().writer.poll_freeze(cx))?;
+        let _ = task::ready!(self.project().inner.poll_freeze(cx))?;
         Poll::Ready(Ok(()))
     }
 }
@@ -55,21 +55,21 @@ where
     type Error = W::Error;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.project().writer.poll_ready(cx)
+        self.project().inner.poll_ready(cx)
     }
 
     fn start_write(self: Pin<&mut Self>, part: P) -> Result<Self::Ret, Self::Error> {
-        self.project().writer.start_send(part)
+        self.project().inner.start_send(part)
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.project().writer.poll_flush(cx)
+        self.project().inner.poll_flush(cx)
     }
 
     fn poll_freeze(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>> {
-        self.project().writer.poll_close(cx)
+        self.project().inner.poll_close(cx)
     }
 }
