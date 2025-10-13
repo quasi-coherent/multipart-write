@@ -80,7 +80,7 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     ///
     /// This adapter produces a new `MultipartWrite` by passing each part through
     /// the given function `f` before sending it to `self`.
-    fn with<Q, Fut, F, E>(self, f: F) -> With<Self, Q, Part, F, Fut>
+    fn with<Q, E, F, Fut>(self, f: F) -> With<Self, Q, Part, F, Fut>
     where
         F: FnMut(Q) -> Fut,
         Fut: Future<Output = Result<Part, E>>,
@@ -185,6 +185,7 @@ pub trait MultipartWriteStreamExt<Part>: Stream<Item = Part> {
         W: MultipartWrite<Part>,
         F: FnMut(W::Ret) -> bool,
         Self: Sized,
+        Self::Item: std::fmt::Debug,
     {
         Frozen::new(self, writer, f)
     }

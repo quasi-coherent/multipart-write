@@ -16,8 +16,15 @@ pub struct CollectParts<St: Stream, W: MultipartWrite<St::Item>> {
     stream: St,
     #[pin]
     writer: StreamWriter<W, St::Item>,
-    freeze: bool,
+    state: State,
     terminated: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum State {
+    Write,
+    Next,
+    Freeze,
 }
 
 impl<St: Stream, W: MultipartWrite<St::Item>> CollectParts<St, W> {
@@ -25,7 +32,7 @@ impl<St: Stream, W: MultipartWrite<St::Item>> CollectParts<St, W> {
         Self {
             stream,
             writer: StreamWriter::new(writer),
-            freeze: false,
+            state: State::Write,
             terminated: false,
         }
     }
@@ -43,31 +50,30 @@ impl<St: Stream, W: MultipartWrite<St::Item>> Future for CollectParts<St, W> {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.project();
 
-        if *this.freeze {
-            let ret = task::ready!(this.writer.as_mut().poll_freeze(cx));
-            *this.terminated = true;
-            return Poll::Ready(ret);
-        }
-
         loop {
-            match task::ready!(this.writer.as_mut().poll_write(cx)) {
-                Err(e) => {
-                    return {
+            let next_state = match *this.state {
+                State::Write => match task::ready!(this.writer.as_mut().poll_write(cx)) {
+                    Ok(_) => State::Next,
+                    Err(e) => {
                         *this.terminated = true;
-                        Poll::Ready(Err(e))
-                    };
+                        return Poll::Ready(Err(e));
+                    }
+                },
+                State::Next => match task::ready!(this.stream.as_mut().poll_next(cx)) {
+                    Some(next) => {
+                        this.writer.as_mut().set_buffered(next);
+                        State::Write
+                    }
+                    _ => State::Freeze,
+                },
+                State::Freeze => {
+                    let output = task::ready!(this.writer.as_mut().poll_freeze(cx));
+                    *this.terminated = true;
+                    return Poll::Ready(output);
                 }
-                Ok(None) => {
-                    let Some(item) = task::ready!(this.stream.as_mut().poll_next(cx)) else {
-                        *this.freeze = true;
-                        return Poll::Pending;
-                    };
+            };
 
-                    this.writer.as_mut().set_buffered(item);
-                }
-                // Nothing to do--the buffered part was written.
-                Ok(Some(_)) => {}
-            }
+            *this.state = next_state;
         }
     }
 }
@@ -108,26 +114,23 @@ impl<W: MultipartWrite<P>, P> StreamWriter<W, P> {
         let mut this = self.project();
 
         if this.buffered.is_none() {
-            Poll::Ready(Ok(None))
-        } else {
-            match this.writer.as_mut().poll_ready(cx) {
-                Poll::Pending => {
-                    if let Err(e) = task::ready!(this.writer.poll_flush(cx)) {
-                        Poll::Ready(Err(e))
-                    } else {
-                        Poll::Pending
-                    }
-                }
-                Poll::Ready(Ok(())) => {
-                    let part = this
-                        .buffered
-                        .take()
-                        .expect("polled CollectParts after completion");
-                    let ret = this.writer.as_mut().start_write(part)?;
-                    Poll::Ready(Ok(Some(ret)))
-                }
+            return Poll::Ready(Ok(None));
+        }
+
+        match this.writer.as_mut().poll_ready(cx) {
+            Poll::Pending => match this.writer.poll_flush(cx) {
                 Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+                Poll::Ready(Ok(())) | Poll::Pending => Poll::Pending,
+            },
+            Poll::Ready(Ok(())) => {
+                let part = this
+                    .buffered
+                    .take()
+                    .expect("polled CollectParts after completion");
+                let ret = this.writer.as_mut().start_write(part)?;
+                Poll::Ready(Ok(Some(ret)))
             }
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
         }
     }
 }

@@ -15,7 +15,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []
-tokio-io = ["dep:tokio", "tokio?/io-util"]
+tokio = ["dep:tokio"]
 
 [dependencies]
 bytes = "1.10.0"

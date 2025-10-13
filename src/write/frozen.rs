@@ -1,6 +1,7 @@
 use crate::MultipartWrite;
 
 use futures::stream::{FusedStream, Stream};
+use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{self, Context, Poll};
 
@@ -8,7 +9,6 @@ use std::task::{self, Context, Poll};
 ///
 /// [`frozen`]: super::MultipartWriteStreamExt::frozen
 #[must_use = "futures do nothing unless polled"]
-#[derive(Debug)]
 #[pin_project::pin_project]
 pub struct Frozen<St: Stream, W: MultipartWrite<St::Item>, F> {
     #[pin]
@@ -22,14 +22,13 @@ pub struct Frozen<St: Stream, W: MultipartWrite<St::Item>, F> {
 // To track state transitions between polling the writer or stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum State {
+    Write,
     Next,
-    // The next state should be `Self::Shutdown` when the inner bool is `true`,
-    // `Self::Next` if `false`.
-    Freeze(bool),
-    Shutdown,
+    Freeze,
+    Shutdown(bool),
 }
 
-impl<St: Stream, W, F> Frozen<St, W, F>
+impl<St, W, F> Frozen<St, W, F>
 where
     St: Stream,
     W: MultipartWrite<St::Item>,
@@ -70,82 +69,113 @@ where
         // Because `poll_ready` must be called before `start_write`, and to call
         // `start_write` we have to have an item from the stream, there is always
         // a yield point between checking if we can write an item and getting the
-        // item to write.
+        // item to write, which invalidates the `ready` designation of the
+        // writer.
         // The common way to solve this is to buffer one item between polls.
         // This creates the following state machine for producing the next item:
-        match *this.state {
-            // Polling the stream on the last iteration produced `None`, so we
-            // need to also produce `None`, ending the stream.
-            State::Shutdown => {
-                *this.terminated = true;
-                return Poll::Ready(None);
-            }
-            // The state returned by the inner writer says that it was ready to
-            // call `poll_freeze` on, or the stream did not produce the next item
-            // to give to the writer and we shortcut to freezing, in this case for
-            // the last time, since the state is set to `State::Shutdown` to end
-            // the stream on the next poll.
-            State::Freeze(shutdown) => {
-                let ret = task::ready!(this.writer.as_mut().freeze(cx));
-                if shutdown {
-                    *this.state = State::Shutdown;
-                } else {
-                    *this.state = State::Next;
-                }
-
-                return Poll::Ready(Some(ret));
-            }
-            // Enter the item-producing loop.
-            State::Next => {}
-        }
-
         loop {
-            // Ask the writer to write its buffered part, returning the `State`
-            // we should transition to.
-            match task::ready!(this.writer.as_mut().write_part(cx)) {
-                // This was an error; produce the error as the next stream item.
-                Err(e) => {
-                    *this.state = State::Next;
-                    return Poll::Ready(Some(Err(e)));
+            let next_state = match *this.state {
+                // Ask the writer to write its buffered part, returning the
+                // `State` we should transition to.
+                // If the writer had no item in its buffer, it will ask for the
+                // `State::Next` item from the stream.
+                // If it did, the item was written, and then either the writer
+                // is full and `State::Freeze`, or it's not and `State::Next`,
+                // will be the state.
+                State::Write => match task::ready!(this.writer.as_mut().write_part(cx)) {
+                    Ok(state) => state,
+                    Err(e) => {
+                        *this.state = State::Write;
+                        return Poll::Ready(Some(Err(e)));
+                    }
+                },
+                // The writer has no buffered item to write, so poll the stream
+                // to get the next item, set it on the writer, then transition to
+                // `State::Write`.
+                // If there is no next item, this means the stream is exhausted.
+                // If the writer is empty, we just end here.  Otherwise, the next
+                // state is `State::Shutdown`, which comprises two iterations:
+                // one, freeze the last time and return it; two, end the stream
+                // by returning `Poll::Ready(None)`.
+                State::Next => match task::ready!(this.stream.as_mut().poll_next(cx)) {
+                    Some(item) => {
+                        this.writer.as_mut().set_buffered(item);
+                        State::Write
+                    }
+                    _ => {
+                        if this.writer.as_mut().is_empty() {
+                            *this.terminated = true;
+                            return Poll::Ready(None);
+                        }
+
+                        State::Shutdown(true)
+                    }
+                },
+                // The writer's `poll_freeze` should be polled and a new write
+                // should start.
+                State::Freeze => {
+                    let output = task::ready!(this.writer.as_mut().freeze(cx));
+                    *this.state = State::Write;
+                    return Poll::Ready(Some(output));
                 }
-                // Either the inner writer had a buffered item or it didn't.
-                // If it did not, we have to poll the stream for the next one and
-                // write it to the writer.
-                // If it did, then the writer was able to safely `poll_ready` and
-                // `start_write`.  If `State::Next` was returned in this case,
-                // that means that the writer needs more parts to be frozen, so
-                // go back to the top of the loop.
-                Ok(State::Next) => {
-                    // Upstream stopped producing; shortcut the writer and advance
-                    // to freezing it for the last item before we also stop
-                    // producing.
-                    let Some(it) = task::ready!(this.stream.as_mut().poll_next(cx)) else {
-                        *this.state = State::Freeze(true);
-                        return Poll::Pending;
-                    };
-                    this.writer.as_mut().set_buffered(it);
+                // Got the signal to end the stream, either `now` if this is the
+                // second loop of `State::Shutdown`, or freeze the last output
+                // and keep the shutdown state, but with `now` equal to `true`.
+                State::Shutdown(now) => {
+                    if now {
+                        *this.terminated = true;
+                        return Poll::Ready(None);
+                    }
+
+                    let output = task::ready!(this.writer.as_mut().freeze(cx));
+                    *this.state = State::Shutdown(true);
+                    return Poll::Ready(Some(output));
                 }
-                // The `W::Ret` that was returned from the write implies we
-                // should freeze the writer and return the next item from this
-                // stream.  Set the state to this and return pending so that we
-                // enter the match statement at the top on the next poll.
-                Ok(State::Freeze(_)) => {
-                    *this.state = State::Freeze(false);
-                    return Poll::Pending;
-                }
-                _ => {}
-            }
+            };
+
+            *this.state = next_state;
         }
     }
 }
 
-#[derive(Debug)]
+impl<St: Stream, W: MultipartWrite<St::Item>, F> Debug for Frozen<St, W, F>
+where
+    St: Debug,
+    St::Item: Debug,
+    W: Debug,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Frozen")
+            .field("stream", &self.stream)
+            .field("writer", &self.writer)
+            .field("state", &self.state)
+            .field("terminated", &self.terminated)
+            .finish()
+    }
+}
+
 #[pin_project::pin_project]
 struct StreamWriter<W, P, F> {
     #[pin]
     writer: W,
     buffered: Option<P>,
     f: F,
+    is_empty: bool,
+}
+
+impl<W, P, F> Debug for StreamWriter<W, P, F>
+where
+    W: Debug,
+    P: Debug,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StreamWriter")
+            .field("writer", &self.writer)
+            .field("buffered", &self.buffered)
+            .field("f", &"FnMut(W::Ret) -> bool")
+            .field("is_empty", &self.is_empty)
+            .finish()
+    }
 }
 
 impl<W, P, F> StreamWriter<W, P, F> {
@@ -154,11 +184,16 @@ impl<W, P, F> StreamWriter<W, P, F> {
             writer,
             buffered: None,
             f,
+            is_empty: true,
         }
     }
 
     fn set_buffered(self: Pin<&mut Self>, buffered: P) {
         *self.project().buffered = Some(buffered);
+    }
+
+    fn is_empty(self: Pin<&mut Self>) -> bool {
+        self.is_empty && self.buffered.is_none()
     }
 
     fn write_part(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<State, W::Error>>
@@ -173,39 +208,40 @@ impl<W, P, F> StreamWriter<W, P, F> {
         }
 
         match this.writer.as_mut().poll_ready(cx) {
-            Poll::Pending => {
-                if let Err(e) = task::ready!(this.writer.poll_flush(cx)) {
-                    Poll::Ready(Err(e))
-                } else {
-                    Poll::Pending
-                }
-            }
+            Poll::Pending => match this.writer.poll_flush(cx) {
+                Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+                Poll::Ready(Ok(())) | Poll::Pending => Poll::Pending,
+            },
             Poll::Ready(Ok(())) => {
                 // Generally it's really bad to do something like `Option::take`
-                // in a future, but here it's safe because we aren't returning
-                // `Poll::Pending` at any point between now and returning from
-                // this function, and we want the buffer to have `None` in it
-                // when we return from this branch.
+                // in a future, but this branch is purely synchronous and we
+                // actually want `buffered` to be `None` when returning here.
                 let part = this
                     .buffered
                     .take()
                     .expect("polled Frozen after completion");
 
-                match this.writer.as_mut().start_write(part).map(|v| (this.f)(v)) {
-                    Ok(freeze) if freeze => Poll::Ready(Ok(State::Freeze(false))),
+                let ret = match this.writer.as_mut().start_write(part).map(|v| (this.f)(v)) {
+                    Ok(freeze) if freeze => Poll::Ready(Ok(State::Freeze)),
                     Ok(_) => Poll::Ready(Ok(State::Next)),
                     Err(e) => Poll::Ready(Err(e)),
-                }
+                };
+                *this.is_empty = false;
+
+                ret
             }
             Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
         }
     }
 
-    fn freeze(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<W::Output, W::Error>>
+    fn freeze(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<W::Output, W::Error>>
     where
         W: MultipartWrite<P>,
     {
-        task::ready!(self.as_mut().project().writer.poll_flush(cx))?;
-        self.project().writer.as_mut().poll_freeze(cx)
+        let mut this = self.project();
+        task::ready!(this.writer.as_mut().poll_flush(cx))?;
+        let output = task::ready!(this.writer.as_mut().poll_freeze(cx));
+        *this.is_empty = true;
+        Poll::Ready(output)
     }
 }
