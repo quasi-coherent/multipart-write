@@ -2,7 +2,7 @@ use crate::MultipartWrite;
 
 use futures::future::Future;
 use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::task::{self, Context, Poll};
 
 /// Future for the [`freeze`](super::MultipartWriteExt::freeze) method.
 #[must_use = "futures do nothing unless polled"]
@@ -29,6 +29,8 @@ impl<'a, W: MultipartWrite<P> + ?Sized + Unpin, P> Freeze<'a, W, P> {
 impl<W: MultipartWrite<P> + Unpin, P> Future for Freeze<'_, W, P> {
     type Output = Result<W::Output, W::Error>;
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.project().writer.as_mut().poll_freeze(cx)
+        let mut this = self.project();
+        task::ready!(this.writer.as_mut().poll_flush(cx))?;
+        this.writer.as_mut().poll_freeze(cx)
     }
 }
