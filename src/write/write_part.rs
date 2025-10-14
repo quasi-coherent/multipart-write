@@ -2,7 +2,7 @@ use crate::MultipartWrite;
 
 use futures::future::{FusedFuture, Future};
 use std::pin::Pin;
-use std::task::{self, Context, Poll};
+use std::task::{Context, Poll};
 
 /// Future for the [`write_part`] method.
 ///
@@ -39,9 +39,16 @@ impl<W: MultipartWrite<P> + Unpin, P> Future for WritePart<'_, W, P> {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.project();
-        task::ready!(this.writer.as_mut().poll_ready(cx))?;
-        let part = this.part.take().expect("polled Write after completion");
-
-        Poll::Ready(this.writer.start_write(part))
+        match this.writer.as_mut().poll_ready(cx) {
+            Poll::Pending => match this.writer.poll_flush(cx) {
+                Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+                Poll::Ready(Ok(())) | Poll::Pending => Poll::Pending,
+            },
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+            Poll::Ready(Ok(())) => {
+                let part = this.part.take().expect("polled Write after completion");
+                Poll::Ready(this.writer.start_write(part))
+            }
+        }
     }
 }
