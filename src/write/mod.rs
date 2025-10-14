@@ -20,6 +20,9 @@ pub use collect_parts::CollectParts;
 mod flush;
 pub use flush::Flush;
 
+mod for_each_written;
+pub use for_each_written::ForEachWritten;
+
 mod freeze;
 pub use freeze::Freeze;
 
@@ -31,6 +34,8 @@ pub use map_err::MapErr;
 
 mod multipart_writer_sink;
 pub use multipart_writer_sink::MultipartWriterSink;
+
+pub mod stream_writer;
 
 mod then;
 pub use then::Then;
@@ -185,7 +190,6 @@ pub trait MultipartWriteStreamExt<Part>: Stream<Item = Part> {
         W: MultipartWrite<Part>,
         F: FnMut(W::Ret) -> bool,
         Self: Sized,
-        Self::Item: std::fmt::Debug,
     {
         Frozen::new(self, writer, f)
     }
@@ -200,6 +204,25 @@ pub trait MultipartWriteStreamExt<Part>: Stream<Item = Part> {
         Self: Sized,
     {
         CollectParts::new(self, writer)
+    }
+
+    /// Run this stream through the provided [`MultipartWrite`] to completion,
+    /// freezing the writer to produce the next output when the synchronous
+    /// closure evaluates to `true`, and executing the asynchronous closure for
+    /// each result.
+    fn for_each_written<W, F, G, Fut>(
+        self,
+        writer: W,
+        f: F,
+        callback: G,
+    ) -> ForEachWritten<Self, W, F, G, Fut>
+    where
+        W: MultipartWrite<Part>,
+        F: FnMut(W::Ret) -> bool,
+        G: FnMut(Result<W::Output, W::Error>) -> Fut,
+        Self: Sized,
+    {
+        ForEachWritten::new(self, writer, f, callback)
     }
 }
 
