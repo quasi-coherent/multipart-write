@@ -1,5 +1,6 @@
 use crate::MultipartWrite;
 use crate::write::stream_writer::{StreamWriter, StreamWriterState};
+use crate::write::{Forever, MultipartWriteExt as _};
 
 use futures::future::{FusedFuture, Future};
 use futures::stream::Stream;
@@ -16,7 +17,7 @@ pub struct CollectParts<St: Stream, W: MultipartWrite<St::Item>> {
     #[pin]
     stream: St,
     #[pin]
-    writer: StreamWriter<W, St::Item, fn(W::Ret) -> bool>,
+    writer: StreamWriter<Forever<W>, St::Item>,
     state: StreamWriterState,
     terminated: bool,
 }
@@ -25,7 +26,7 @@ impl<St: Stream, W: MultipartWrite<St::Item>> CollectParts<St, W> {
     pub(super) fn new(stream: St, writer: W) -> Self {
         Self {
             stream,
-            writer: StreamWriter::new(writer, |_| false),
+            writer: StreamWriter::new(writer.forever()),
             state: StreamWriterState::Next,
             terminated: false,
         }

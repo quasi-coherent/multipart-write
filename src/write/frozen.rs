@@ -1,4 +1,4 @@
-use crate::MultipartWrite;
+use crate::AutoMultipartWrite;
 use crate::write::stream_writer::{StreamWriter, StreamWriterState};
 
 use futures::stream::{FusedStream, Stream};
@@ -11,47 +11,44 @@ use std::task::{self, Context, Poll};
 /// [`frozen`]: super::MultipartWriteStreamExt::frozen
 #[must_use = "futures do nothing unless polled"]
 #[pin_project::pin_project]
-pub struct Frozen<St: Stream, W: MultipartWrite<St::Item>, F> {
+pub struct Frozen<St: Stream, W: AutoMultipartWrite<St::Item>> {
     #[pin]
     stream: St,
     #[pin]
-    writer: StreamWriter<W, St::Item, F>,
+    writer: StreamWriter<W, St::Item>,
     state: StreamWriterState,
     terminated: bool,
 }
 
-impl<St, W, F> Frozen<St, W, F>
+impl<St, W> Frozen<St, W>
 where
     St: Stream,
-    W: MultipartWrite<St::Item>,
-    F: FnMut(W::Ret) -> bool,
+    W: AutoMultipartWrite<St::Item>,
 {
-    pub(super) fn new(stream: St, writer: W, f: F) -> Self {
+    pub(super) fn new(stream: St, writer: W) -> Self {
         Self {
             stream,
-            writer: StreamWriter::new(writer, f),
+            writer: StreamWriter::new(writer),
             state: StreamWriterState::Next,
             terminated: false,
         }
     }
 }
 
-impl<St, W, F> FusedStream for Frozen<St, W, F>
+impl<St, W> FusedStream for Frozen<St, W>
 where
     St: FusedStream,
-    W: MultipartWrite<St::Item>,
-    F: FnMut(W::Ret) -> bool,
+    W: AutoMultipartWrite<St::Item>,
 {
     fn is_terminated(&self) -> bool {
         self.terminated
     }
 }
 
-impl<St, W, F> Stream for Frozen<St, W, F>
+impl<St, W> Stream for Frozen<St, W>
 where
     St: Stream,
-    W: MultipartWrite<St::Item>,
-    F: FnMut(W::Ret) -> bool,
+    W: AutoMultipartWrite<St::Item>,
 {
     type Item = Result<W::Output, W::Error>;
 
@@ -134,7 +131,7 @@ where
     }
 }
 
-impl<St: Stream, W: MultipartWrite<St::Item>, F> Debug for Frozen<St, W, F>
+impl<St: Stream, W: AutoMultipartWrite<St::Item>> Debug for Frozen<St, W>
 where
     St: Debug,
     St::Item: Debug,

@@ -78,10 +78,10 @@ async fn writer_with() {
 
 #[tokio::test]
 async fn stream_frozen() {
-    let writer = TestWriter::default();
+    let writer = TestWriter::default().freeze_when(0, |_, n| *n % 5 == 0);
     let stream = futures::stream::iter(1..=10);
     let mut outputs = stream
-        .frozen(writer, |n| n % 5 == 0)
+        .frozen(writer)
         .collect::<Vec<_>>()
         .await
         .into_iter()

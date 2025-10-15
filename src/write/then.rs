@@ -25,6 +25,16 @@ impl<W, F, Fut> Then<W, F, Fut> {
             f,
         }
     }
+
+    /// Acquires a mutable reference to the underlying writer.
+    pub fn get_mut(&mut self) -> &mut W {
+        &mut self.writer
+    }
+
+    /// Acquires a pinned mutable reference to the underlying writer.
+    pub fn get_pin_mut(self: Pin<&mut Self>) -> Pin<&mut W> {
+        self.project().writer
+    }
 }
 
 impl<W, F, Fut, Part> MultipartWrite<Part> for Then<W, F, Fut>

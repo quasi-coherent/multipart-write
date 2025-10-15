@@ -4,7 +4,7 @@
 //! [`MultipartWriteStreamExt`], which provide adapters for chaining and
 //! composing [`MultipartWrite`] types, or combining them with common [`futures`]
 //! interfaces.
-use crate::MultipartWrite;
+use crate::{AutoMultipartWrite, MultipartWrite};
 
 use futures::future::Future;
 use futures::stream::Stream;
@@ -17,6 +17,9 @@ pub use buffered::Buffered;
 mod collect_parts;
 pub use collect_parts::CollectParts;
 
+mod forever;
+pub use forever::Forever;
+
 mod flush;
 pub use flush::Flush;
 
@@ -25,6 +28,9 @@ pub use for_each_written::ForEachWritten;
 
 mod freeze;
 pub use freeze::Freeze;
+
+mod freeze_when;
+pub use freeze_when::FreezeWhen;
 
 mod map;
 pub use map::Map;
@@ -106,6 +112,31 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         Buffered::new(self, capacity.into().unwrap_or_default())
     }
 
+    /// Returns a `MultipartWrite` that implements [`AutoMultipartWrite`] using
+    /// the provided closure and state `S: Default`.
+    ///
+    /// `AutoMultipartWrite` is a constraint in repetitive uses of a writer, such
+    /// as in a stream where calling [`poll_freeze`] needs to be done to produce
+    /// the next item, but an ordinary `MultipartWrite` has no notion of when it
+    /// should be completed.
+    fn freeze_when<S, F>(self, init: S, f: F) -> FreezeWhen<Self, S, F>
+    where
+        S: Default,
+        F: FnMut(&mut S, &Self::Ret) -> bool,
+        Self: Sized,
+    {
+        FreezeWhen::new(self, init, f)
+    }
+
+    /// Returns a `MultipartWrite` that is identical to `Self` but implements the
+    /// [`AutoMultipartWrite`] interface by always returning `false`.
+    fn forever(self) -> Forever<Self>
+    where
+        Self: Sized,
+    {
+        Forever::new(self)
+    }
+
     /// Convert this writer into a [`Sink`].
     ///
     /// [`Sink`]: futures::sink::Sink
@@ -177,21 +208,15 @@ impl<W: MultipartWrite<Part>, Part> MultipartWriteExt<Part> for W {}
 /// A [`Stream`] extension for combining streams with [`MultipartWrite`]rs.
 ///
 /// [`Stream`]: futures::stream::Stream
-/// [`MultipartWrite`]: crate::MultipartWrite
 pub trait MultipartWriteStreamExt<Part>: Stream<Item = Part> {
-    /// Map this stream into a `MultipartWrite`, returning a new stream whose
-    /// item type is the `MultiPartWrite`r's `Output` type.
-    ///
-    /// The function of the closure is to determine from the associated
-    /// [`MultipartWrite::Ret`] when it is appropriate to flush/freeze the writer
-    /// and produce the output as the next item in the stream.
-    fn frozen<W, F>(self, writer: W, f: F) -> Frozen<Self, W, F>
+    /// Map this stream into an [`AutoMultipartWrite`], returning a new stream
+    /// whose item type is the `MultiPartWrite`r's `Output` type.
+    fn frozen<W>(self, writer: W) -> Frozen<Self, W>
     where
-        W: MultipartWrite<Part>,
-        F: FnMut(W::Ret) -> bool,
+        W: AutoMultipartWrite<Part>,
         Self: Sized,
     {
-        Frozen::new(self, writer, f)
+        Frozen::new(self, writer)
     }
 
     /// Transforms a stream into parts for a writer, returning a future
@@ -210,19 +235,13 @@ pub trait MultipartWriteStreamExt<Part>: Stream<Item = Part> {
     /// freezing the writer to produce the next output when the synchronous
     /// closure evaluates to `true`, and executing the asynchronous closure for
     /// each result.
-    fn for_each_written<W, F, G, Fut>(
-        self,
-        writer: W,
-        f: F,
-        callback: G,
-    ) -> ForEachWritten<Self, W, F, G, Fut>
+    fn for_each_written<W, F, Fut>(self, writer: W, f: F) -> ForEachWritten<Self, W, F, Fut>
     where
-        W: MultipartWrite<Part>,
-        F: FnMut(W::Ret) -> bool,
-        G: FnMut(Result<W::Output, W::Error>) -> Fut,
+        W: AutoMultipartWrite<Part>,
+        F: FnMut(Result<W::Output, W::Error>) -> Fut,
         Self: Sized,
     {
-        ForEachWritten::new(self, writer, f, callback)
+        ForEachWritten::new(self, writer, f)
     }
 }
 

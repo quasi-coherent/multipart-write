@@ -34,6 +34,16 @@ where
         }
     }
 
+    /// Acquires a mutable reference to the underlying writer.
+    pub fn get_mut(&mut self) -> &mut W {
+        &mut self.writer
+    }
+
+    /// Acquires a pinned mutable reference to the underlying writer.
+    pub fn get_pin_mut(self: Pin<&mut Self>) -> Pin<&mut W> {
+        self.project().writer
+    }
+
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), E>> {
         let mut this = self.project();
 

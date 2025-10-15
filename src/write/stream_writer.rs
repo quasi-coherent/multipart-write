@@ -1,4 +1,4 @@
-//! Helper type for using a [`MultipartWrite`] within a stream.
+//! Helper type for using an [`AutoMultipartWrite`] within a stream.
 //!
 //! It's required to call [`poll_ready`] on a `MultipartWrite` before a call to
 //! [`start_write`], but to have something to write, you need to `poll_next` on
@@ -8,7 +8,7 @@
 //! So it's necessary to be able to `poll_ready` and then immediately write the
 //! item with no yield in between. This helper wraps a writer with a buffered
 //! item and reports back the next state for the stream-and-writer combo.
-use crate::MultipartWrite;
+use crate::AutoMultipartWrite;
 
 use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
@@ -40,21 +40,19 @@ pub enum StreamWriterState {
 /// `StreamWriter` wraps a writer with a buffered `P` from a stream and writes it
 /// when ready.
 #[pin_project::pin_project]
-pub struct StreamWriter<W, P, F> {
+pub struct StreamWriter<W, P> {
     #[pin]
     writer: W,
     buffered: Option<P>,
-    f: F,
     is_empty: bool,
 }
 
-impl<W, P, F> StreamWriter<W, P, F> {
+impl<W, P> StreamWriter<W, P> {
     /// Create a new [`StreamWriter`] with empty buffer.
-    pub fn new(writer: W, f: F) -> Self {
+    pub fn new(writer: W) -> Self {
         Self {
             writer,
             buffered: None,
-            f,
             is_empty: true,
         }
     }
@@ -95,8 +93,7 @@ impl<W, P, F> StreamWriter<W, P, F> {
         cx: &mut Context<'_>,
     ) -> Poll<Result<StreamWriterState, W::Error>>
     where
-        W: MultipartWrite<P>,
-        F: FnMut(W::Ret) -> bool,
+        W: AutoMultipartWrite<P>,
     {
         let mut this = self.project();
 
@@ -118,8 +115,10 @@ impl<W, P, F> StreamWriter<W, P, F> {
                     .take()
                     .expect("polled Frozen after completion");
 
-                let ret = match this.writer.as_mut().start_write(part).map(|v| (this.f)(v)) {
-                    Ok(freeze) if freeze => Poll::Ready(Ok(StreamWriterState::Freeze)),
+                let ret = match this.writer.as_mut().start_write(part) {
+                    Ok(_) if this.writer.should_freeze() => {
+                        Poll::Ready(Ok(StreamWriterState::Freeze))
+                    }
                     Ok(_) => Poll::Ready(Ok(StreamWriterState::Next)),
                     Err(e) => Poll::Ready(Err(e)),
                 };
@@ -137,7 +136,7 @@ impl<W, P, F> StreamWriter<W, P, F> {
         cx: &mut Context<'_>,
     ) -> Poll<Result<W::Output, W::Error>>
     where
-        W: MultipartWrite<P>,
+        W: AutoMultipartWrite<P>,
     {
         let mut this = self.project();
         task::ready!(this.writer.as_mut().poll_flush(cx))?;
@@ -147,7 +146,7 @@ impl<W, P, F> StreamWriter<W, P, F> {
     }
 }
 
-impl<W, P, F> Debug for StreamWriter<W, P, F>
+impl<W, P> Debug for StreamWriter<W, P>
 where
     W: Debug,
     P: Debug,
@@ -156,7 +155,6 @@ where
         f.debug_struct("StreamWriter")
             .field("writer", &self.writer)
             .field("buffered", &self.buffered)
-            .field("f", &"FnMut(W::Ret) -> bool")
             .field("is_empty", &self.is_empty)
             .finish()
     }

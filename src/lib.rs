@@ -18,8 +18,8 @@ pub mod write;
 
 /// A prelude for this crate.
 pub mod prelude {
-    pub use super::MultipartWrite;
     pub use super::write::{self, MultipartWriteExt as _, MultipartWriteStreamExt as _};
+    pub use super::{AutoMultipartWrite, MultipartWrite};
 }
 
 /// `MultipartWrite` is a [`Sink`]-like interface for asynchronously writing an
@@ -76,6 +76,14 @@ pub trait MultipartWrite<Part> {
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>>;
+}
+
+/// `AutoMultipartWrite` is a [`MultipartWrite`] that additionally has a notion
+/// of when [`poll_freeze`] should be called on it based on tracking some notion
+/// of state.
+pub trait AutoMultipartWrite<Part>: MultipartWrite<Part> {
+    /// The caller should transition to [`poll_freeze`] and complete the write.
+    fn should_freeze(self: Pin<&mut Self>) -> bool;
 }
 
 impl<W: ?Sized + MultipartWrite<Part> + Unpin, Part> MultipartWrite<Part> for &mut W {

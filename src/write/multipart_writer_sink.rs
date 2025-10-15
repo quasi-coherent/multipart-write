@@ -19,6 +19,16 @@ impl<W> MultipartWriterSink<W> {
     pub fn new(inner: W) -> Self {
         Self { inner }
     }
+
+    /// Acquires a mutable reference to the inner value of `W`.
+    pub fn get_mut(&mut self) -> &mut W {
+        &mut self.inner
+    }
+
+    /// Acquires a pinned mutable reference to the inner value of `W`.
+    pub fn get_pin_mut(self: Pin<&mut Self>) -> Pin<&mut W> {
+        self.project().inner
+    }
 }
 
 impl<W, P> Sink<P> for MultipartWriterSink<W>
