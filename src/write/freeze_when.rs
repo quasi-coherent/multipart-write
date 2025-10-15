@@ -25,6 +25,16 @@ impl<W, S: Default, F> FreezeWhen<W, S, F> {
             should_freeze: false,
         }
     }
+
+    /// Acquires a mutable reference to the underlying writer.
+    pub fn get_mut(&mut self) -> &mut W {
+        &mut self.writer
+    }
+
+    /// Acquires a pinned mutable reference to the underlying writer.
+    pub fn get_pin_mut(self: Pin<&mut Self>) -> Pin<&mut W> {
+        self.project().writer
+    }
 }
 
 impl<W, S, F, P> MultipartWrite<P> for FreezeWhen<W, S, F>

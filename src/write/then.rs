@@ -1,4 +1,4 @@
-use crate::MultipartWrite;
+use crate::{AutoMultipartWrite, MultipartWrite};
 
 use std::pin::Pin;
 use std::task::{self, Context, Poll};
@@ -37,9 +37,9 @@ impl<W, F, Fut> Then<W, F, Fut> {
     }
 }
 
-impl<W, F, Fut, Part> MultipartWrite<Part> for Then<W, F, Fut>
+impl<W, F, Fut, P> MultipartWrite<P> for Then<W, F, Fut>
 where
-    W: MultipartWrite<Part>,
+    W: MultipartWrite<P>,
     F: FnMut(W::Output) -> Fut,
     Fut: Future,
 {
@@ -51,7 +51,7 @@ where
         self.project().writer.poll_ready(cx)
     }
 
-    fn start_write(self: Pin<&mut Self>, part: Part) -> Result<Self::Ret, Self::Error> {
+    fn start_write(self: Pin<&mut Self>, part: P) -> Result<Self::Ret, Self::Error> {
         self.project().writer.start_write(part)
     }
 
@@ -80,5 +80,16 @@ where
         this.output.set(None);
 
         Poll::Ready(Ok(ret))
+    }
+}
+
+impl<W, F, Fut, P> AutoMultipartWrite<P> for Then<W, F, Fut>
+where
+    W: AutoMultipartWrite<P>,
+    F: FnMut(W::Output) -> Fut,
+    Fut: Future,
+{
+    fn should_freeze(self: Pin<&mut Self>) -> bool {
+        self.project().writer.should_freeze()
     }
 }

@@ -1,4 +1,4 @@
-use crate::MultipartWrite;
+use crate::{AutoMultipartWrite, MultipartWrite};
 
 use std::pin::Pin;
 use std::task::{self, Context, Poll};
@@ -93,5 +93,17 @@ where
         task::ready!(self.as_mut().poll(cx))?;
         let ret = task::ready!(self.project().writer.poll_freeze(cx)?);
         Poll::Ready(Ok(ret))
+    }
+}
+
+impl<W, Q, Part, F, Fut, E> AutoMultipartWrite<Q> for With<W, Q, Part, F, Fut>
+where
+    W: AutoMultipartWrite<Part>,
+    F: FnMut(Q) -> Fut,
+    Fut: Future<Output = Result<Part, E>>,
+    E: From<W::Error>,
+{
+    fn should_freeze(self: Pin<&mut Self>) -> bool {
+        self.project().writer.should_freeze()
     }
 }

@@ -1,4 +1,4 @@
-use crate::MultipartWrite;
+use crate::{AutoMultipartWrite, MultipartWrite};
 
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -31,9 +31,9 @@ impl<W, F> MapErr<W, F> {
     }
 }
 
-impl<W, F, Part, E> MultipartWrite<Part> for MapErr<W, F>
+impl<W, F, P, E> MultipartWrite<P> for MapErr<W, F>
 where
-    W: MultipartWrite<Part>,
+    W: MultipartWrite<P>,
     F: FnMut(W::Error) -> E,
 {
     type Ret = W::Ret;
@@ -48,7 +48,7 @@ where
             .map_err(|e| (self.as_mut().project().f)(e))
     }
 
-    fn start_write(mut self: Pin<&mut Self>, part: Part) -> Result<Self::Ret, Self::Error> {
+    fn start_write(mut self: Pin<&mut Self>, part: P) -> Result<Self::Ret, Self::Error> {
         self.as_mut()
             .project()
             .writer
@@ -73,5 +73,15 @@ where
             .writer
             .poll_freeze(cx)
             .map_err(|e| (self.as_mut().project().f)(e))
+    }
+}
+
+impl<W, F, P, E> AutoMultipartWrite<P> for MapErr<W, F>
+where
+    W: AutoMultipartWrite<P>,
+    F: FnMut(W::Error) -> E,
+{
+    fn should_freeze(self: Pin<&mut Self>) -> bool {
+        self.project().writer.should_freeze()
     }
 }

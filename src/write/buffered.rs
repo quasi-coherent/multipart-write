@@ -1,4 +1,4 @@
-use crate::MultipartWrite;
+use crate::{AutoMultipartWrite, MultipartWrite};
 
 use std::collections::VecDeque;
 use std::pin::Pin;
@@ -90,5 +90,14 @@ where
     ) -> Poll<Result<Self::Output, Self::Error>> {
         task::ready!(self.as_mut().try_empty_buffer(cx))?;
         self.project().writer.poll_freeze(cx)
+    }
+}
+
+impl<W, P> AutoMultipartWrite<P> for Buffered<W, P>
+where
+    W: AutoMultipartWrite<P>,
+{
+    fn should_freeze(self: Pin<&mut Self>) -> bool {
+        self.project().writer.should_freeze()
     }
 }
