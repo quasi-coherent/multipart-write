@@ -9,6 +9,7 @@ use std::task::{self, Context, Poll};
 ///
 /// [`Sink`]: futures::sink::Sink
 #[derive(Debug)]
+#[must_use = "futures do nothing unless polled"]
 #[pin_project::pin_project]
 pub struct MultipartWriterSink<W> {
     #[pin]

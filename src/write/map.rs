@@ -6,8 +6,8 @@ use std::task::{Context, Poll};
 /// `MultipartWrite` for the [`map`] method.
 ///
 /// [`map`]: super::MultipartWriteExt::map
-#[must_use = "futures do nothing unless polled"]
 #[derive(Debug)]
+#[must_use = "futures do nothing unless polled"]
 #[pin_project::pin_project]
 pub struct Map<W, F> {
     #[pin]

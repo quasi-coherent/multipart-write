@@ -6,6 +6,7 @@ use std::task::{self, Context, Poll};
 /// `AutoMultipartWrite` for the [`freeze_when`] method.
 ///
 /// [`freeze_when`]: super::MultipartWriteExt::freeze_when
+#[derive(Debug)]
 #[must_use = "futures do nothing unless polled"]
 #[pin_project::pin_project]
 pub struct FreezeWhen<W, S, F> {

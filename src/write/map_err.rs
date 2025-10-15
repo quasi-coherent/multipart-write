@@ -6,8 +6,8 @@ use std::task::{Context, Poll};
 /// `MultipartWrite` for the [`map_err`] method.
 ///
 /// [`map_err`]: super::MultipartWriteExt::map_err
-#[must_use = "futures do nothing unless polled"]
 #[derive(Debug)]
+#[must_use = "futures do nothing unless polled"]
 #[pin_project::pin_project]
 pub struct MapErr<W, F> {
     #[pin]

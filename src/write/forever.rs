@@ -6,8 +6,8 @@ use std::task::{Context, Poll};
 /// Writer for the [`forever`] method.
 ///
 /// [`forever`]: super::MultipartWriteExt::forever
-#[must_use = "futures do nothing unless polled"]
 #[derive(Debug)]
+#[must_use = "futures do nothing unless polled"]
 #[pin_project::pin_project]
 pub struct Forever<W> {
     #[pin]

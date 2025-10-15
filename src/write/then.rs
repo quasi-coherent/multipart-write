@@ -6,8 +6,8 @@ use std::task::{self, Context, Poll};
 /// `MultipartWrite` for the [`then`] method.
 ///
 /// [`then`]: super::MultipartWriteExt::then
-#[must_use = "futures do nothing unless polled"]
 #[derive(Debug)]
+#[must_use = "futures do nothing unless polled"]
 #[pin_project::pin_project]
 pub struct Then<W, F, Fut> {
     #[pin]
