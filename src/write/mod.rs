@@ -208,12 +208,12 @@ impl<W: MultipartWrite<Part>, Part> MultipartWriteExt<Part> for W {}
 /// A [`Stream`] extension for combining streams with [`MultipartWrite`]rs.
 ///
 /// [`Stream`]: futures::stream::Stream
-pub trait MultipartWriteStreamExt<Part>: Stream<Item = Part> {
+pub trait MultipartWriteStreamExt: Stream {
     /// Map this stream into an [`AutoMultipartWrite`], returning a new stream
     /// whose item type is the `MultiPartWrite`r's `Output` type.
     fn frozen<W>(self, writer: W) -> Frozen<Self, W>
     where
-        W: AutoMultipartWrite<Part>,
+        W: AutoMultipartWrite<Self::Item>,
         Self: Sized,
     {
         Frozen::new(self, writer)
@@ -225,7 +225,7 @@ pub trait MultipartWriteStreamExt<Part>: Stream<Item = Part> {
     /// The returned future will be resolved when the stream terminates.
     fn collect_parts<W>(self, writer: W) -> CollectParts<Self, W>
     where
-        W: MultipartWrite<Part>,
+        W: MultipartWrite<Self::Item>,
         Self: Sized,
     {
         CollectParts::new(self, writer)
@@ -237,7 +237,7 @@ pub trait MultipartWriteStreamExt<Part>: Stream<Item = Part> {
     /// each result.
     fn for_each_written<W, F, Fut>(self, writer: W, f: F) -> ForEachWritten<Self, W, F, Fut>
     where
-        W: AutoMultipartWrite<Part>,
+        W: AutoMultipartWrite<Self::Item>,
         F: FnMut(Result<W::Output, W::Error>) -> Fut,
         Self: Sized,
     {
@@ -245,4 +245,4 @@ pub trait MultipartWriteStreamExt<Part>: Stream<Item = Part> {
     }
 }
 
-impl<St: Stream<Item = Part>, Part> MultipartWriteStreamExt<Part> for St {}
+impl<St: Stream> MultipartWriteStreamExt for St {}
