@@ -1,36 +1,27 @@
 //! `MultipartWrite` combinators.
 //!
-//! This module contains the traits [`MultipartWriteExt`] and
-//! [`MultipartWriteStreamExt`], which provide adapters for chaining and
-//! composing [`MultipartWrite`] types, or combining them with common [`futures`]
-//! interfaces.
-use crate::{AutoMultipartWrite, MultipartWrite};
+//! This module contains the trait [`MultipartWriteExt`], which provides adapters
+//! for chaining and composing [`MultipartWrite`]rs.
+use crate::MultipartWrite;
 
 use futures::future::Future;
-use futures::stream::Stream;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 mod buffered;
 pub use buffered::Buffered;
 
-mod collect_parts;
-pub use collect_parts::CollectParts;
+mod complete;
+pub use complete::Complete;
 
-mod forever;
-pub use forever::Forever;
+mod feed;
+pub use feed::Feed;
+
+mod fold_ret;
+pub use fold_ret::FoldRet;
 
 mod flush;
 pub use flush::Flush;
-
-mod for_each_written;
-pub use for_each_written::ForEachWritten;
-
-mod freeze;
-pub use freeze::Freeze;
-
-mod freeze_when;
-pub use freeze_when::FreezeWhen;
 
 mod map;
 pub use map::Map;
@@ -38,69 +29,21 @@ pub use map::Map;
 mod map_err;
 pub use map_err::MapErr;
 
-mod multipart_writer_sink;
-pub use multipart_writer_sink::MultipartWriterSink;
+mod map_ret;
+pub use map_ret::MapRet;
 
-pub mod stream_writer;
+mod send;
+pub use send::Send;
 
 mod then;
 pub use then::Then;
 
-mod frozen;
-pub use frozen::Frozen;
-
 mod with;
 pub use with::With;
-
-mod write_part;
-pub use write_part::WritePart;
 
 /// An extension trait for `MultipartWrite`rs providing a variety of convenient
 /// combinator functions.
 pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
-    /// Map this writer's output type to a different type, resulting in a new
-    /// multipart writer of the resulting type.
-    fn map<U, F>(self, f: F) -> Map<Self, F>
-    where
-        F: FnMut(Self::Output) -> U,
-        Self: Sized,
-    {
-        Map::new(self, f)
-    }
-
-    /// Map this writer's error type to a different value.
-    fn map_err<E, F>(self, f: F) -> MapErr<Self, F>
-    where
-        F: FnOnce(Self::Error) -> E,
-        Self: Sized,
-    {
-        MapErr::new(self, f)
-    }
-
-    /// Chain a computation on the output of a writer.
-    fn then<U, F, Fut>(self, f: F) -> Then<Self, F, Fut>
-    where
-        F: FnMut(Self::Output) -> Fut,
-        Fut: Future<Output = U>,
-        Self: Sized,
-    {
-        Then::new(self, f)
-    }
-
-    /// Composes a function in front of the `MultipartWrite`.
-    ///
-    /// This adapter produces a new `MultipartWrite` by passing each part through
-    /// the given function `f` before sending it to `self`.
-    fn with<Q, E, F, Fut>(self, f: F) -> With<Self, Q, Part, F, Fut>
-    where
-        F: FnMut(Q) -> Fut,
-        Fut: Future<Output = Result<Part, E>>,
-        E: From<Self::Error>,
-        Self: Sized,
-    {
-        With::new(self, f)
-    }
-
     /// Adds a fixed size buffer to the current writer.
     ///
     /// The resulting `MultipartWrite` will buffer up to `capacity` items when
@@ -112,47 +55,26 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         Buffered::new(self, capacity.into().unwrap_or_default())
     }
 
-    /// Returns a `MultipartWrite` that implements [`AutoMultipartWrite`] using
-    /// the provided closure and state `S: Default`.
-    ///
-    /// `AutoMultipartWrite` is a constraint in repetitive uses of a writer, such
-    /// as in a stream where calling [`poll_freeze`] needs to be done to produce
-    /// the next item, but an ordinary `MultipartWrite` has no notion of when it
-    /// should be completed.
-    fn freeze_when<S, F>(self, init: S, f: F) -> FreezeWhen<Self, S, F>
-    where
-        S: Default,
-        F: FnMut(&mut S, &Self::Ret) -> bool,
-        Self: Sized,
-    {
-        FreezeWhen::new(self, init, f)
-    }
-
-    /// Returns a `MultipartWrite` that is identical to `Self` but implements the
-    /// [`AutoMultipartWrite`] interface by always returning `false`.
-    fn forever(self) -> Forever<Self>
-    where
-        Self: Sized,
-    {
-        Forever::new(self)
-    }
-
-    /// Convert this writer into a [`Sink`].
-    ///
-    /// [`Sink`]: futures::sink::Sink
-    fn into_sink(self) -> MultipartWriterSink<Self>
-    where
-        Self: Sized,
-    {
-        MultipartWriterSink::new(self)
-    }
-
-    /// A future that completes when a part has been written to the writer.
-    fn write_part(&mut self, part: Part) -> WritePart<'_, Self, Part>
+    /// A future that runs this writer to completion, returning the associated
+    /// output.
+    fn complete(&mut self) -> Complete<'_, Self, Part>
     where
         Self: Unpin,
     {
-        WritePart::new(self, part)
+        Complete::new(self)
+    }
+
+    /// A future that completes after the given part has been received by the
+    /// writer.
+    ///
+    /// Unlike `write`, the returned future does not flush the writer.  It is the
+    /// caller's responsibility  to ensure all pending items are processed, which
+    /// can be done with `flush` or `complete`.
+    fn feed(&mut self, part: Part) -> Feed<'_, Self, Part>
+    where
+        Self: Unpin,
+    {
+        Feed::new(self, part)
     }
 
     /// A future that completes when the underlying writer has been flushed.
@@ -163,13 +85,45 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         Flush::new(self)
     }
 
-    /// A future that runs this writer to completion, returning the associated
-    /// output.
-    fn freeze(&mut self) -> Freeze<'_, Self, Part>
+    /// Accumulate this writer's returned values, returning a new multipart
+    /// writer that pairs the underlying writer's output with the
+    /// result of the accumulating function.
+    fn fold_ret<T, F>(self, id: T, f: F) -> FoldRet<Self, F, T>
     where
-        Self: Unpin,
+        F: FnMut(T, &Self::Ret) -> T,
+        Self: Sized,
     {
-        Freeze::new(self)
+        FoldRet::new(self, id, f)
+    }
+
+    /// Map this writer's output type to a different type, returning a new
+    /// multipart writer with the given output type.
+    fn map<U, F>(self, f: F) -> Map<Self, F>
+    where
+        F: FnMut(Self::Output) -> U,
+        Self: Sized,
+    {
+        Map::new(self, f)
+    }
+
+    /// Map this writer's error type to a different value, returning a new
+    /// multipart writer with the given error type.
+    fn map_err<E, F>(self, f: F) -> MapErr<Self, F>
+    where
+        F: FnMut(Self::Error) -> E,
+        Self: Sized,
+    {
+        MapErr::new(self, f)
+    }
+
+    /// Map this writer's return type to a different value, returning a new
+    /// multipart writer with the given return type.
+    fn map_ret<U, F>(self, f: F) -> MapRet<Self, F>
+    where
+        F: FnMut(Self::Ret) -> U,
+        Self: Sized,
+    {
+        MapRet::new(self, f)
     }
 
     /// A convenience method for calling [`poll_ready`] on [`Unpin`] writer types.
@@ -192,57 +146,51 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         Pin::new(self).poll_flush(cx)
     }
 
-    /// A convenience method for calling [`poll_freeze`] on [`Unpin`] writer types.
+    /// A convenience method for calling [`poll_complete`] on [`Unpin`] writer types.
     ///
-    /// [`poll_freeze`]: super::MultipartWrite::poll_freeze
-    fn poll_freeze_unpin(&mut self, cx: &mut Context<'_>) -> Poll<Result<Self::Output, Self::Error>>
+    /// [`poll_complete`]: super::MultipartWrite::poll_complete
+    fn poll_complete_unpin(
+        &mut self,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<Self::Output, Self::Error>>
     where
         Self: Unpin,
     {
-        Pin::new(self).poll_freeze(cx)
+        Pin::new(self).poll_complete(cx)
+    }
+
+    /// A future that completes when a part has been fully processed into the
+    /// writer, including flushing.
+    fn send(&mut self, part: Part) -> Send<'_, Self, Part>
+    where
+        Self: Unpin,
+    {
+        Send::new(self, part)
+    }
+
+    /// Chain a computation on the output of a writer.
+    fn then<U, F, Fut>(self, f: F) -> Then<Self, F, Fut>
+    where
+        F: FnMut(Self::Output) -> Fut,
+        Fut: Future<Output = U>,
+        Self: Sized,
+    {
+        Then::new(self, f)
+    }
+
+    /// Composes a function in front of the `MultipartWrite`.
+    ///
+    /// This adapter produces a new `MultipartWrite` by passing each part through
+    /// the given function `f` before sending it to `self`.
+    fn with<U, Fut, F, E>(self, f: F) -> With<Self, Part, U, Fut, F>
+    where
+        F: FnMut(U) -> Fut,
+        Fut: Future<Output = Result<Part, E>>,
+        E: From<Self::Error>,
+        Self: Sized,
+    {
+        With::new(self, f)
     }
 }
 
 impl<W: MultipartWrite<Part>, Part> MultipartWriteExt<Part> for W {}
-
-/// A [`Stream`] extension for combining streams with [`MultipartWrite`]rs.
-///
-/// [`Stream`]: futures::stream::Stream
-pub trait MultipartWriteStreamExt: Stream {
-    /// Map this stream into an [`AutoMultipartWrite`], returning a new stream
-    /// whose item type is the `MultiPartWrite`r's `Output` type.
-    fn frozen<W>(self, writer: W) -> Frozen<Self, W>
-    where
-        W: AutoMultipartWrite<Self::Item>,
-        Self: Sized,
-    {
-        Frozen::new(self, writer)
-    }
-
-    /// Transforms a stream into parts for a writer, returning a future
-    /// representing the result of freezing the writer.
-    ///
-    /// The returned future will be resolved when the stream terminates.
-    fn collect_parts<W>(self, writer: W) -> CollectParts<Self, W>
-    where
-        W: MultipartWrite<Self::Item>,
-        Self: Sized,
-    {
-        CollectParts::new(self, writer)
-    }
-
-    /// Run this stream through the provided [`MultipartWrite`] to completion,
-    /// freezing the writer to produce the next output when the synchronous
-    /// closure evaluates to `true`, and executing the asynchronous closure for
-    /// each result.
-    fn for_each_written<W, F, Fut>(self, writer: W, f: F) -> ForEachWritten<Self, W, F, Fut>
-    where
-        W: AutoMultipartWrite<Self::Item>,
-        F: FnMut(Result<W::Output, W::Error>) -> Fut,
-        Self: Sized,
-    {
-        ForEachWritten::new(self, writer, f)
-    }
-}
-
-impl<St: Stream> MultipartWriteStreamExt for St {}

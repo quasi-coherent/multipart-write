@@ -1,25 +1,25 @@
 use crate::MultipartWrite;
 
+use futures::ready;
+use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
-use std::task::{self, Context, Poll};
+use std::task::{Context, Poll};
 
-/// `MultipartWrite` for [`then`](super::MultipartWriteExt::then).
-#[derive(Debug)]
+/// `MultipartWrite` for [`fold_ret`](super::MultipartWriteExt::fold_ret).
 #[must_use = "futures do nothing unless polled"]
 #[pin_project::pin_project]
-pub struct Then<W, F, Fut> {
+pub struct FoldRet<W, F, T> {
     #[pin]
     writer: W,
-    #[pin]
-    output: Option<Fut>,
+    acc: Option<T>,
     f: F,
 }
 
-impl<W, F, Fut> Then<W, F, Fut> {
-    pub(super) fn new(writer: W, f: F) -> Self {
+impl<W, F, T> FoldRet<W, F, T> {
+    pub(super) fn new(writer: W, id: T, f: F) -> Self {
         Self {
             writer,
-            output: None,
+            acc: Some(id),
             f,
         }
     }
@@ -44,14 +44,13 @@ impl<W, F, Fut> Then<W, F, Fut> {
     }
 }
 
-impl<W, F, Fut, Part> MultipartWrite<Part> for Then<W, F, Fut>
+impl<W, F, T, Part> MultipartWrite<Part> for FoldRet<W, F, T>
 where
     W: MultipartWrite<Part>,
-    F: FnMut(W::Output) -> Fut,
-    Fut: Future,
+    F: FnMut(T, &W::Ret) -> T,
 {
     type Ret = W::Ret;
-    type Output = Fut::Output;
+    type Output = (T, W::Output);
     type Error = W::Error;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -59,7 +58,11 @@ where
     }
 
     fn start_send(self: Pin<&mut Self>, part: Part) -> Result<Self::Ret, Self::Error> {
-        self.project().writer.start_send(part)
+        let mut this = self.project();
+        let ret = this.writer.as_mut().start_send(part)?;
+        let new_acc = this.acc.take().map(|acc| (this.f)(acc, &ret));
+        *this.acc = new_acc;
+        Ok(ret)
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -71,21 +74,21 @@ where
         cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>> {
         let mut this = self.project();
+        let output = ready!(this.writer.as_mut().poll_complete(cx))?;
+        let acc = this.acc.take().expect("polled FoldRet after completion");
+        Poll::Ready(Ok((acc, output)))
+    }
+}
 
-        if this.output.is_none() {
-            let ret = task::ready!(this.writer.poll_complete(cx))?;
-            let fut = (this.f)(ret);
-            this.output.set(Some(fut));
-        }
-
-        let fut = this
-            .output
-            .as_mut()
-            .as_pin_mut()
-            .expect("polled Then after completion");
-        let ret = task::ready!(fut.poll(cx));
-        this.output.set(None);
-
-        Poll::Ready(Ok(ret))
+impl<W, F, T> Debug for FoldRet<W, F, T>
+where
+    W: Debug,
+    T: Debug,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FoldRet")
+            .field("writer", &self.writer)
+            .field("acc", &self.acc)
+            .finish()
     }
 }

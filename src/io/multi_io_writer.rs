@@ -8,8 +8,8 @@ use std::task::{Context, Poll};
 /// [`Write`](std::io::Write).
 ///
 /// [`MultipartWrite`]: crate::MultipartWrite
-#[pin_project::pin_project]
 #[derive(Debug, Default)]
+#[pin_project::pin_project]
 pub struct MultiIoWriter<W: Write> {
     inner: W,
 }
@@ -29,7 +29,7 @@ impl<W: Write + Default> MultipartWrite<&[u8]> for MultiIoWriter<W> {
         Poll::Ready(Ok(()))
     }
 
-    fn start_write(self: Pin<&mut Self>, part: &[u8]) -> Result<Self::Ret, Self::Error> {
+    fn start_send(self: Pin<&mut Self>, part: &[u8]) -> Result<Self::Ret, Self::Error> {
         self.get_mut().inner.write(part)
     }
 
@@ -37,7 +37,7 @@ impl<W: Write + Default> MultipartWrite<&[u8]> for MultiIoWriter<W> {
         Poll::Ready(self.get_mut().inner.flush())
     }
 
-    fn poll_freeze(
+    fn poll_complete(
         mut self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>> {

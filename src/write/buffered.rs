@@ -1,4 +1,4 @@
-use crate::{AutoMultipartWrite, MultipartWrite};
+use crate::MultipartWrite;
 
 use std::collections::VecDeque;
 use std::pin::Pin;
@@ -10,14 +10,14 @@ use std::task::{self, Context, Poll};
 #[must_use = "futures do nothing unless polled"]
 #[derive(Debug)]
 #[pin_project::pin_project]
-pub struct Buffered<W, P> {
+pub struct Buffered<W, Part> {
     #[pin]
     writer: W,
     capacity: usize,
-    buf: VecDeque<P>,
+    buf: VecDeque<Part>,
 }
 
-impl<W: MultipartWrite<P>, P> Buffered<W, P> {
+impl<W: MultipartWrite<Part>, Part> Buffered<W, Part> {
     pub(super) fn new(writer: W, capacity: usize) -> Self {
         Self {
             writer,
@@ -26,12 +26,21 @@ impl<W: MultipartWrite<P>, P> Buffered<W, P> {
         }
     }
 
+    /// Acquires a reference to the underlying writer.
+    pub fn get_ref(&self) -> &W {
+        &self.writer
+    }
+
     /// Acquires a mutable reference to the underlying writer.
+    ///
+    /// It is inadvisable to directly write to the underlying writer.
     pub fn get_mut(&mut self) -> &mut W {
         &mut self.writer
     }
 
     /// Acquires a pinned mutable reference to the underlying writer.
+    ///
+    /// It is inadvisable to directly write to the underlying writer.
     pub fn get_pin_mut(self: Pin<&mut Self>) -> Pin<&mut W> {
         self.project().writer
     }
@@ -41,7 +50,7 @@ impl<W: MultipartWrite<P>, P> Buffered<W, P> {
 
         task::ready!(this.writer.as_mut().poll_ready(cx))?;
         while let Some(part) = this.buf.pop_front() {
-            this.writer.as_mut().start_write(part)?;
+            this.writer.as_mut().start_send(part)?;
             if !this.buf.is_empty() {
                 task::ready!(this.writer.as_mut().poll_ready(cx))?;
             }
@@ -50,9 +59,9 @@ impl<W: MultipartWrite<P>, P> Buffered<W, P> {
     }
 }
 
-impl<W, P> MultipartWrite<P> for Buffered<W, P>
+impl<W, Part> MultipartWrite<Part> for Buffered<W, Part>
 where
-    W: MultipartWrite<P>,
+    W: MultipartWrite<Part>,
 {
     type Ret = ();
     type Output = W::Output;
@@ -70,9 +79,9 @@ where
         }
     }
 
-    fn start_write(self: Pin<&mut Self>, part: P) -> Result<Self::Ret, Self::Error> {
+    fn start_send(self: Pin<&mut Self>, part: Part) -> Result<Self::Ret, Self::Error> {
         if self.capacity == 0 {
-            let _ = self.project().writer.start_write(part)?;
+            let _ = self.project().writer.start_send(part)?;
         } else {
             self.project().buf.push_back(part);
         }
@@ -84,20 +93,11 @@ where
         self.project().writer.poll_flush(cx)
     }
 
-    fn poll_freeze(
+    fn poll_complete(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>> {
         task::ready!(self.as_mut().try_empty_buffer(cx))?;
-        self.project().writer.poll_freeze(cx)
-    }
-}
-
-impl<W, P> AutoMultipartWrite<P> for Buffered<W, P>
-where
-    W: AutoMultipartWrite<P>,
-{
-    fn should_freeze(self: Pin<&mut Self>) -> bool {
-        self.project().writer.should_freeze()
+        self.project().writer.poll_complete(cx)
     }
 }

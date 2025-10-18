@@ -80,7 +80,7 @@ impl<W: AsyncWrite + Default + Unpin> MultipartWrite<&[u8]> for MultiAsyncWriter
         self.flush_buf(cx)
     }
 
-    fn start_write(self: Pin<&mut Self>, part: &[u8]) -> Result<Self::Ret, Self::Error> {
+    fn start_send(self: Pin<&mut Self>, part: &[u8]) -> Result<Self::Ret, Self::Error> {
         self.project().buf.extend_from_slice(part);
         Ok(part.len())
     }
@@ -89,7 +89,7 @@ impl<W: AsyncWrite + Default + Unpin> MultipartWrite<&[u8]> for MultiAsyncWriter
         self.project().inner.poll_flush(cx)
     }
 
-    fn poll_freeze(
+    fn poll_complete(
         mut self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>> {

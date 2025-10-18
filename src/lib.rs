@@ -3,29 +3,30 @@
 //! This crate contains the trait [`MultipartWrite`] and assorted implementations
 //! and convenience combinators.
 //!
-//! A [`MultipartWrite`] is a similar interface as [`Sink`], except that it
-//! allows returning a value when writing a part or completing the overall
-//! write.
+//! A [`MultipartWrite`] is a similar interface as [`Sink`], except that writing
+//! a value or completing the write return values.
 //!
-//! [`Sink`]: futures::sink::Sink
+//! [`Sink`]: https://docs.rs/crate/futures-sink/0.3.31
 #![cfg_attr(docsrs, feature(doc_cfg))]
 use std::ops::DerefMut;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 pub mod io;
+pub mod stream;
 pub mod write;
 
 /// A prelude for this crate.
 pub mod prelude {
-    pub use super::write::{self, MultipartWriteExt as _, MultipartWriteStreamExt as _};
-    pub use super::{AutoMultipartWrite, MultipartWrite};
+    pub use super::MultipartWrite;
+    pub use super::stream::{self, MultipartStreamExt as _};
+    pub use super::write::{self, MultipartWriteExt as _};
 }
 
 /// `MultipartWrite` is a [`Sink`]-like interface for asynchronously writing an
 /// object in parts.
 ///
-/// [`Sink`]: futures::sink::Sink
+/// [`Sink`]: https://docs.rs/crate/futures-sink/0.3.31
 pub trait MultipartWrite<Part> {
     /// The type of value returned when writing the part began successfully.
     type Ret;
@@ -39,7 +40,7 @@ pub trait MultipartWrite<Part> {
     /// Attempts to prepare the `MultipartWrite` to receive a new part.
     ///
     /// This method must be called and return `Poll::Ready` before each call to
-    /// `start_write`, indicating that the underlying writer is ready to have
+    /// `start_send`, indicating that the underlying writer is ready to have
     /// another part written to it.
     ///
     /// This method returns `Poll::Pending` when the object being prepared cannot
@@ -49,18 +50,16 @@ pub trait MultipartWrite<Part> {
     /// Begin the process of writing a part to this writer, returning the
     /// associated type confirming this was done successfully.
     ///
-    /// Like [`Sink`], this should be preceded by a call to `poll_ready` that
+    /// Like `Sink`, this should be preceded by a call to `poll_ready` that
     /// returns `Poll::Ready` to ensure that the `MultipartWrite` is ready to
     /// receive a new part.
     ///
     /// # Errors
     ///
     /// Errors returned by this method are implementation-specific, but it is
-    /// always an error to call `start_write` when `poll_ready` would return
+    /// always an error to call `start_send` when `poll_ready` would return
     /// `Poll::Pending`.
-    ///
-    /// [`Sink`]: futures::sink::Sink
-    fn start_write(self: Pin<&mut Self>, part: Part) -> Result<Self::Ret, Self::Error>;
+    fn start_send(self: Pin<&mut Self>, part: Part) -> Result<Self::Ret, Self::Error>;
 
     /// Flush any remaining output from the writer.
     ///
@@ -68,22 +67,14 @@ pub trait MultipartWrite<Part> {
     /// is more work left to do.
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>>;
 
-    /// Freeze this writer, returning the output.
+    /// Complete this writer, returning the output.
     ///
-    /// This method returns `Poll::Ready` when no buffered, unwritten parts
+    /// This method returns `Poll::Pending` until no buffered, unwritten parts
     /// remain and the complete output object is available.
-    fn poll_freeze(
+    fn poll_complete(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>>;
-}
-
-/// `AutoMultipartWrite` is a [`MultipartWrite`] that additionally has a notion
-/// of when [`poll_freeze`] should be called on it based on tracking some notion
-/// of state.
-pub trait AutoMultipartWrite<Part>: MultipartWrite<Part> {
-    /// The caller should transition to [`poll_freeze`] and complete the write.
-    fn should_freeze(self: Pin<&mut Self>) -> bool;
 }
 
 impl<W: ?Sized + MultipartWrite<Part> + Unpin, Part> MultipartWrite<Part> for &mut W {
@@ -95,19 +86,19 @@ impl<W: ?Sized + MultipartWrite<Part> + Unpin, Part> MultipartWrite<Part> for &m
         Pin::new(&mut **self).poll_ready(cx)
     }
 
-    fn start_write(mut self: Pin<&mut Self>, part: Part) -> Result<Self::Ret, Self::Error> {
-        Pin::new(&mut **self).start_write(part)
+    fn start_send(mut self: Pin<&mut Self>, part: Part) -> Result<Self::Ret, Self::Error> {
+        Pin::new(&mut **self).start_send(part)
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Pin::new(&mut **self).poll_flush(cx)
     }
 
-    fn poll_freeze(
+    fn poll_complete(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>> {
-        Pin::new(&mut **self).poll_freeze(cx)
+        Pin::new(&mut **self).poll_complete(cx)
     }
 }
 
@@ -124,18 +115,18 @@ where
         self.get_mut().as_mut().poll_ready(cx)
     }
 
-    fn start_write(self: Pin<&mut Self>, part: Part) -> Result<Self::Ret, Self::Error> {
-        self.get_mut().as_mut().start_write(part)
+    fn start_send(self: Pin<&mut Self>, part: Part) -> Result<Self::Ret, Self::Error> {
+        self.get_mut().as_mut().start_send(part)
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.get_mut().as_mut().poll_flush(cx)
     }
 
-    fn poll_freeze(
+    fn poll_complete(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>> {
-        self.get_mut().as_mut().poll_freeze(cx)
+        self.get_mut().as_mut().poll_complete(cx)
     }
 }

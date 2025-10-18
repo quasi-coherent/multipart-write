@@ -1,4 +1,5 @@
-use futures::stream::StreamExt as _;
+use futures::future::ready;
+use futures::stream::{StreamExt as _, iter};
 use multipart_write::prelude::*;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -17,7 +18,7 @@ impl MultipartWrite<usize> for TestWriter {
         Poll::Ready(Ok(()))
     }
 
-    fn start_write(mut self: Pin<&mut Self>, part: usize) -> Result<usize, String> {
+    fn start_send(mut self: Pin<&mut Self>, part: usize) -> Result<usize, String> {
         self.as_mut().inner.push(part);
         Ok(part)
     }
@@ -26,7 +27,7 @@ impl MultipartWrite<usize> for TestWriter {
         Poll::Ready(Ok(()))
     }
 
-    fn poll_freeze(
+    fn poll_complete(
         mut self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>> {
@@ -37,16 +38,16 @@ impl MultipartWrite<usize> for TestWriter {
 #[tokio::test]
 async fn trait_futures() {
     let mut writer = TestWriter::default();
-    writer.write_part(1).await.ok();
-    writer.write_part(2).await.ok();
-    writer.write_part(3).await.ok();
+    writer.send(1).await.ok();
+    writer.send(2).await.ok();
+    writer.send(3).await.ok();
     writer.flush().await.ok();
-    let out1 = writer.freeze().await.unwrap();
+    let out1 = writer.complete().await.unwrap();
 
-    writer.write_part(10).await.ok();
-    writer.write_part(20).await.ok();
+    writer.send(10).await.ok();
+    writer.send(20).await.ok();
     writer.flush().await.ok();
-    let out2 = writer.freeze().await.unwrap();
+    let out2 = writer.complete().await.unwrap();
 
     assert_eq!(out1, vec![1, 2, 3]);
     assert_eq!(out2, vec![10, 20]);
@@ -54,34 +55,33 @@ async fn trait_futures() {
 
 #[tokio::test]
 async fn writer_map() {
-    let mut writer = TestWriter::default().map(|ns| ns.into_iter().fold(0, |a, n| a + n));
-    for n in 1..=5 {
-        writer.write_part(n).await.ok();
+    let mut writer = TestWriter::default().map(|ns| ns.iter().sum::<usize>());
+    for n in 1..=5_usize {
+        writer.send(n).await.ok();
     }
-    writer.flush().await.ok();
-    let out = writer.freeze().await.unwrap();
+    writer.complete().await.ok();
+    let out = writer.complete().await.unwrap();
     assert_eq!(out, 15);
 }
 
 #[tokio::test]
 async fn writer_with() {
-    let mut writer =
-        TestWriter::default().with::<usize, String, _, _>(|n| futures::future::ready(Ok(n + 1)));
-    writer.write_part(1).await.ok();
-    writer.write_part(2).await.ok();
-    writer.write_part(3).await.ok();
+    let mut writer = TestWriter::default().with(|n| ready(Ok::<usize, String>(n + 1_usize)));
+    writer.send(1).await.ok();
+    writer.send(2).await.ok();
+    writer.send(3).await.ok();
     writer.flush().await.ok();
-    let out = writer.freeze().await.unwrap();
+    let out = writer.complete().await.unwrap();
 
     assert_eq!(out, vec![2, 3, 4]);
 }
 
 #[tokio::test]
-async fn stream_frozen() {
-    let writer = TestWriter::default().freeze_when(0, |_, n| *n % 5 == 0);
+async fn map_writer_stream() {
+    let writer = TestWriter::default();
     let stream = futures::stream::iter(1..=10);
     let mut outputs = stream
-        .frozen(writer)
+        .map_writer(writer, |ret| ret % 5 == 0)
         .collect::<Vec<_>>()
         .await
         .into_iter()
@@ -93,4 +93,15 @@ async fn stream_frozen() {
     let out1 = outputs.pop().unwrap();
     assert_eq!(out1, vec![1, 2, 3, 4, 5]);
     assert_eq!(out2, vec![6, 7, 8, 9, 10]);
+}
+
+#[tokio::test]
+async fn collect_complete_stream() {
+    let writer = TestWriter::default().fold_ret(String::new(), |mut acc, n| {
+        acc += &n.to_string();
+        acc
+    });
+    let (acc, out) = iter(1..=5).map(Ok).collect_complete(writer).await.unwrap();
+    assert_eq!(acc, "12345".to_string());
+    assert_eq!(out, vec![1, 2, 3, 4, 5]);
 }

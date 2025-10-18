@@ -1,34 +1,32 @@
 use crate::MultipartWrite;
 
 use futures::future::Future;
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-/// Future for the [`flush`](super::MultipartWriteExt::flush) method.
+/// Future for [`flush`](super::MultipartWriteExt::flush).
 #[must_use = "futures do nothing unless polled"]
 #[derive(Debug)]
-#[pin_project::pin_project]
 pub struct Flush<'a, W: ?Sized, P> {
-    #[pin]
     writer: &'a mut W,
-    _p: std::marker::PhantomData<P>,
-    #[pin]
-    _u: std::marker::PhantomPinned,
+    _p: PhantomData<fn(P)>,
 }
 
-impl<'a, W: MultipartWrite<P> + ?Sized + Unpin, P> Flush<'a, W, P> {
+impl<W: ?Sized + Unpin, P> Unpin for Flush<'_, W, P> {}
+
+impl<'a, W: ?Sized + MultipartWrite<P> + Unpin, P> Flush<'a, W, P> {
     pub(super) fn new(writer: &'a mut W) -> Self {
         Self {
             writer,
             _p: std::marker::PhantomData,
-            _u: std::marker::PhantomPinned,
         }
     }
 }
 
 impl<W: MultipartWrite<P> + Unpin, P> Future for Flush<'_, W, P> {
     type Output = Result<(), W::Error>;
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.project().writer.as_mut().poll_flush(cx)
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        Pin::new(&mut self.writer).poll_flush(cx)
     }
 }
