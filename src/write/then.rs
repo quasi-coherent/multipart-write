@@ -1,7 +1,8 @@
 use crate::MultipartWrite;
 
+use futures::ready;
 use std::pin::Pin;
-use std::task::{self, Context, Poll};
+use std::task::{Context, Poll};
 
 /// `MultipartWrite` for [`then`](super::MultipartWriteExt::then).
 #[derive(Debug)]
@@ -73,7 +74,7 @@ where
         let mut this = self.project();
 
         if this.output.is_none() {
-            let ret = task::ready!(this.writer.poll_complete(cx))?;
+            let ret = ready!(this.writer.poll_complete(cx))?;
             let fut = (this.f)(ret);
             this.output.set(Some(fut));
         }
@@ -83,7 +84,7 @@ where
             .as_mut()
             .as_pin_mut()
             .expect("polled Then after completion");
-        let ret = task::ready!(fut.poll(cx));
+        let ret = ready!(fut.poll(cx));
         this.output.set(None);
 
         Poll::Ready(Ok(ret))

@@ -16,7 +16,6 @@ pub struct Feed<'a, W: ?Sized, Part> {
 impl<W: ?Sized + Unpin, Part> Unpin for Feed<'_, W, Part> {}
 
 impl<'a, W: ?Sized + MultipartWrite<Part> + Unpin, Part> Feed<'a, W, Part> {
-    /// Create a new [`Feed`] with empty buffer.
     pub(super) fn new(writer: &'a mut W, part: Part) -> Self {
         Self {
             writer,

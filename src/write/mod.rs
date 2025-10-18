@@ -14,6 +14,9 @@ pub use buffered::Buffered;
 mod complete;
 pub use complete::Complete;
 
+mod fanout;
+pub use fanout::Fanout;
+
 mod feed;
 pub use feed::Feed;
 
@@ -62,6 +65,18 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         Self: Unpin,
     {
         Complete::new(self)
+    }
+
+    /// Fanout the part to multiple writers.
+    ///
+    /// This adapter clones each incoming part and forwards it to both writers.
+    fn fanout<U>(self, other: U) -> Fanout<Self, U, Part>
+    where
+        Part: Clone,
+        U: MultipartWrite<Part, Error = Self::Error>,
+        Self: Sized,
+    {
+        Fanout::new(self, other)
     }
 
     /// A future that completes after the given part has been received by the
@@ -129,6 +144,7 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// A convenience method for calling [`poll_ready`] on [`Unpin`] writer types.
     ///
     /// [`poll_ready`]: super::MultipartWrite::poll_ready
+    #[must_use = "futures do nothing unless polled"]
     fn poll_ready_unpin(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>>
     where
         Self: Unpin,
@@ -139,6 +155,7 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// A convenience method for calling [`poll_flush`] on [`Unpin`] writer types.
     ///
     /// [`poll_flush`]: super::MultipartWrite::poll_flush
+    #[must_use = "futures do nothing unless polled"]
     fn poll_flush_unpin(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>>
     where
         Self: Unpin,
@@ -149,6 +166,7 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// A convenience method for calling [`poll_complete`] on [`Unpin`] writer types.
     ///
     /// [`poll_complete`]: super::MultipartWrite::poll_complete
+    #[must_use = "futures do nothing unless polled"]
     fn poll_complete_unpin(
         &mut self,
         cx: &mut Context<'_>,
