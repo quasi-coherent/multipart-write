@@ -1,10 +1,10 @@
-//! # multipart-write
+//! # Description
 //!
 //! This crate contains the trait [`MultipartWrite`] and assorted implementations
 //! and convenience combinators.
 //!
-//! A [`MultipartWrite`] is a similar interface as [`Sink`], except that writing
-//! a value or completing the write return values.
+//! A `MultipartWrite` is a similar interface to [`Sink`], except that writing
+//! an item or completing the write both return values.
 //!
 //! [`Sink`]: https://docs.rs/crate/futures-sink/0.3.31
 #![cfg_attr(docsrs, feature(doc_cfg))]
@@ -23,10 +23,8 @@ pub mod prelude {
     pub use super::write::{self, MultipartWriteExt as _};
 }
 
-/// `MultipartWrite` is a [`Sink`]-like interface for asynchronously writing an
+/// `MultipartWrite` is a `Sink`-like interface for asynchronously writing an
 /// object in parts.
-///
-/// [`Sink`]: https://docs.rs/crate/futures-sink/0.3.31
 pub trait MultipartWrite<Part> {
     /// The type of value returned when writing the part began successfully.
     type Ret;

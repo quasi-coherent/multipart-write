@@ -3,7 +3,7 @@ use crate::MultipartWrite;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-/// `MultipartWrite` for the [`map`](super::MultipartWriteExt::map).
+/// `MultipartWrite` for [`map`](super::MultipartWriteExt::map).
 #[derive(Debug)]
 #[must_use = "futures do nothing unless polled"]
 #[pin_project::pin_project]
