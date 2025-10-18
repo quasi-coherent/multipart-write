@@ -32,6 +32,9 @@ pub use map::Map;
 mod map_err;
 pub use map_err::MapErr;
 
+mod map_part;
+pub use map_part::MapPart;
+
 mod map_ret;
 pub use map_ret::MapRet;
 
@@ -129,6 +132,16 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         Self: Sized,
     {
         MapErr::new(self, f)
+    }
+
+    /// Pre-compose the underlying writer with a function that transforms a
+    /// the input part type.
+    fn map_part<U, F>(self, f: F) -> MapPart<Self, F>
+    where
+        F: FnMut(U) -> Result<Part, Self::Error>,
+        Self: MultipartWrite<Part> + Sized,
+    {
+        MapPart::new(self, f)
     }
 
     /// Map this writer's return type to a different value, returning a new
