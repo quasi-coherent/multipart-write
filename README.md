@@ -1,6 +1,6 @@
 # multipart-write
 
-This crate contains the trait [`MultipartWrite`] and assorted implementations
+This crate contains the trait `MultipartWrite` and assorted implementations
 convenience combinators.
 
 A `MultipartWrite` is a similar interface to [`Sink`], except that writing
