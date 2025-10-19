@@ -4,7 +4,7 @@
 //! for chaining and composing [`MultipartWrite`]rs.
 use crate::MultipartWrite;
 
-use futures::future::Future;
+use futures_core::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 

@@ -1,7 +1,7 @@
 use crate::{FusedMultipartWrite, MultipartWrite};
 
-use futures::ready;
-use futures::stream::{FusedStream, Stream};
+use futures_core::ready;
+use futures_core::stream::{FusedStream, Stream};
 use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -19,6 +19,7 @@ pub struct FeedMultipartWrite<St: Stream, Wr, F> {
     writer: WriteBuf<Wr, St::Item, F>,
     state: State,
     stream_terminated: bool,
+    is_terminated: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -36,18 +37,19 @@ impl<St: Stream, Wr, F> FeedMultipartWrite<St, Wr, F> {
             writer: WriteBuf::new(writer, f),
             state: State::Write,
             stream_terminated: false,
+            is_terminated: false,
         }
     }
 }
 
 impl<St, Wr, F> FusedStream for FeedMultipartWrite<St, Wr, F>
 where
-    St: Stream,
+    St: FusedStream,
     Wr: FusedMultipartWrite<St::Item>,
     F: FnMut(Wr::Ret) -> bool,
 {
     fn is_terminated(&self) -> bool {
-        self.stream_terminated || self.writer.inner.is_terminated()
+        self.is_terminated
     }
 }
 
@@ -106,7 +108,10 @@ where
                     }
                     return Poll::Ready(Some(Ok(output)));
                 }
-                State::Shutdown => return Poll::Ready(None),
+                State::Shutdown => {
+                    *this.is_terminated = true;
+                    return Poll::Ready(None);
+                }
             };
 
             *this.state = next_state;

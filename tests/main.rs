@@ -1,12 +1,31 @@
-use futures::future::ready;
-use futures::stream::{StreamExt as _, iter};
+use futures_util::future::{Ready, ready};
+use futures_util::stream::{StreamExt as _, iter};
 use multipart_write::prelude::*;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Debug)]
 struct TestWriter {
     inner: Vec<usize>,
+    multiplier: usize,
+}
+
+impl Default for TestWriter {
+    fn default() -> Self {
+        Self {
+            inner: Vec::new(),
+            multiplier: 1,
+        }
+    }
+}
+
+impl TestWriter {
+    fn new(multiplier: usize) -> Self {
+        Self {
+            multiplier,
+            inner: Vec::new(),
+        }
+    }
 }
 
 impl MultipartWrite<usize> for TestWriter {
@@ -19,7 +38,8 @@ impl MultipartWrite<usize> for TestWriter {
     }
 
     fn start_send(mut self: Pin<&mut Self>, part: usize) -> Result<usize, String> {
-        self.as_mut().inner.push(part);
+        let m = self.multiplier;
+        self.as_mut().inner.push(m * part);
         Ok(part)
     }
 
@@ -79,8 +99,7 @@ async fn writer_with() {
 #[tokio::test]
 async fn feed_multipart_write_stream() {
     let writer = TestWriter::default();
-    let stream = futures::stream::iter(1..=10);
-    let mut outputs = stream
+    let mut outputs = iter(1..=10)
         .feed_multipart_write(writer, |ret| ret % 5 == 0)
         .collect::<Vec<_>>()
         .await
@@ -96,12 +115,46 @@ async fn feed_multipart_write_stream() {
 }
 
 #[tokio::test]
-async fn collect_complete_stream() {
+async fn write_complete_stream() {
     let writer = TestWriter::default().fold_ret(String::new(), |mut acc, n| {
         acc += &n.to_string();
         acc
     });
-    let (acc, out) = iter(1..=5).map(Ok).collect_completed(writer).await.unwrap();
+    let (acc, out) = iter(1..=5).write_complete(writer).await.unwrap();
     assert_eq!(acc, "12345".to_string());
     assert_eq!(out, vec![1, 2, 3, 4, 5]);
+}
+
+struct TestState(usize);
+
+impl Default for TestState {
+    fn default() -> Self {
+        Self(1)
+    }
+}
+
+impl TestState {
+    fn bootstrap(&mut self) -> Ready<Result<TestWriter, String>> {
+        self.0 += 1;
+        let writer = TestWriter::new(self.0);
+        ready(Ok(writer))
+    }
+}
+
+#[tokio::test]
+async fn bootstrapped_writer() {
+    let writer = TestWriter::default().bootstrapped(TestState::default(), TestState::bootstrap);
+    let mut output = iter(1..=5)
+        .feed_multipart_write(writer, |ret| ret % 3 == 0)
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(output.len(), 2);
+
+    let out2 = output.pop().unwrap();
+    let out1 = output.pop().unwrap();
+    assert_eq!(out1, vec![1, 2, 3]);
+    assert_eq!(out2, vec![8, 10]);
 }

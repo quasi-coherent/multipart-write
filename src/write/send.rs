@@ -1,8 +1,8 @@
 use crate::write::Feed;
 use crate::{FusedMultipartWrite, MultipartWrite};
 
-use futures::future::FusedFuture;
-use futures::ready;
+use futures_core::future::FusedFuture;
+use futures_core::ready;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 

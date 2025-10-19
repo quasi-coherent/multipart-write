@@ -1,13 +1,13 @@
 //! `MultipartWrite`rs compatible with [`Stream`].
 use crate::MultipartWrite;
 
-use futures::stream::Stream;
-
-mod collect_completed;
-pub use collect_completed::CollectCompleted;
+use futures_core::stream::Stream;
 
 mod feed_multipart_write;
 pub use feed_multipart_write::FeedMultipartWrite;
+
+mod write_complete;
+pub use write_complete::WriteComplete;
 
 impl<St: Stream> MultipartStreamExt for St {}
 
@@ -27,11 +27,11 @@ pub trait MultipartStreamExt: Stream {
 
     /// Collects a stream by writing to a `MultipartWrite`, returning the
     /// result of completing the write as a future.
-    fn collect_completed<Wr, Part>(self, writer: Wr) -> CollectCompleted<Self, Wr, Part>
+    fn write_complete<Wr>(self, writer: Wr) -> WriteComplete<Self, Wr>
     where
-        Wr: MultipartWrite<Part>,
-        Self: Stream<Item = Result<Part, Wr::Error>> + Sized,
+        Wr: MultipartWrite<Self::Item>,
+        Self: Sized,
     {
-        CollectCompleted::new(self, writer)
+        WriteComplete::new(self, writer)
     }
 }

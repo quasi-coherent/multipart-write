@@ -1,6 +1,6 @@
 use crate::{FusedMultipartWrite, MultipartWrite};
 
-use futures::future::{FusedFuture, Future};
+use futures_core::future::{FusedFuture, Future};
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};

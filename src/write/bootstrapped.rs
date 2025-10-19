@@ -1,34 +1,32 @@
 use crate::{FusedMultipartWrite, MultipartWrite};
 
-use futures::{Future, ready};
+use futures_core::{Future, ready};
 use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-/// `MultipartWrite` for [`on_complete`].
+/// `MultipartWrite` for [`bootstrapped`].
 ///
-/// [`on_complete`]: super::MultipartWriteExt::on_complete
+/// [`bootstrapped`]: super::MultipartWriteExt::bootstrapped
 #[must_use = "futures do nothing unless polled"]
 #[pin_project::pin_project]
-pub struct OnComplete<Wr, S, F, Fut> {
+pub struct Bootstrapped<Wr, S, F, Fut> {
     #[pin]
     writer: Option<Wr>,
     f: F,
     s: S,
     #[pin]
     future: Option<Fut>,
-    is_terminated: bool,
     _f: std::marker::PhantomData<fn(S)>,
 }
 
-impl<Wr, S, F, Fut> OnComplete<Wr, S, F, Fut> {
+impl<Wr, S, F, Fut> Bootstrapped<Wr, S, F, Fut> {
     pub(super) fn new(writer: Wr, s: S, f: F) -> Self {
         Self {
             writer: Some(writer),
             f,
             s,
             future: None,
-            is_terminated: false,
             _f: std::marker::PhantomData,
         }
     }
@@ -56,25 +54,24 @@ impl<Wr, S, F, Fut> OnComplete<Wr, S, F, Fut> {
             }
             Err(e) => {
                 this.future.set(None);
-                *this.is_terminated = true;
                 Poll::Ready(Err(e))
             }
         }
     }
 }
 
-impl<Wr, S, F, Fut, Part> FusedMultipartWrite<Part> for OnComplete<Wr, S, F, Fut>
+impl<Wr, S, F, Fut, Part> FusedMultipartWrite<Part> for Bootstrapped<Wr, S, F, Fut>
 where
     Wr: FusedMultipartWrite<Part>,
     F: FnMut(&mut S) -> Fut,
     Fut: Future<Output = Result<Wr, Wr::Error>>,
 {
     fn is_terminated(&self) -> bool {
-        self.is_terminated
+        self.writer.is_none() && self.future.is_none()
     }
 }
 
-impl<Wr, S, F, Fut, Part> MultipartWrite<Part> for OnComplete<Wr, S, F, Fut>
+impl<Wr, S, F, Fut, Part> MultipartWrite<Part> for Bootstrapped<Wr, S, F, Fut>
 where
     Wr: MultipartWrite<Part>,
     F: FnMut(&mut S) -> Fut,
@@ -106,7 +103,7 @@ where
             .writer
             .as_mut()
             .as_pin_mut()
-            .expect("polled OnComplete after completion");
+            .expect("polled Bootstrapped after completion");
         wr.poll_flush(cx)
     }
 
@@ -119,25 +116,24 @@ where
             .writer
             .as_mut()
             .as_pin_mut()
-            .expect("polled OnComplete after completion");
+            .expect("polled Bootstrapped after completion");
         let output = ready!(wr.poll_complete(cx));
         this.writer.set(None);
         Poll::Ready(output)
     }
 }
 
-impl<Wr, S, F, Fut> Debug for OnComplete<Wr, S, F, Fut>
+impl<Wr, S, F, Fut> Debug for Bootstrapped<Wr, S, F, Fut>
 where
     Wr: Debug,
     S: Debug,
     Fut: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("OnComplete")
+        f.debug_struct("Bootstrapped")
             .field("writer", &self.writer)
             .field("s", &self.s)
             .field("future", &self.future)
-            .field("is_terminated", &self.is_terminated)
             .finish()
     }
 }
