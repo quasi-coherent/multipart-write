@@ -2,50 +2,60 @@ use crate::MultipartWrite;
 
 use futures::ready;
 use futures::stream::{FusedStream, Stream};
+use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-/// Stream for [`map_writer`](super::MultipartStreamExt::map_writer).
+/// The type of value for [`into_multipart_write`].
+///
+/// [`into_multipart_write`]: super::MultipartStreamExt::into_multipart_write
 #[derive(Debug)]
+#[must_use = "futures do nothing unless polled"]
 #[pin_project::pin_project]
-pub struct MapWriter<St: Stream, W: MultipartWrite<St::Item>, F> {
+pub struct IntoMultipartWrite<St: Stream, Wr, F> {
     #[pin]
     stream: St,
     #[pin]
-    writer: WriteBuf<W, St::Item, F>,
+    writer: WriteBuf<Wr, St::Item, F>,
     state: State,
-    is_terminated: bool,
 }
 
-impl<St: Stream, W: MultipartWrite<St::Item>, F> MapWriter<St, W, F> {
-    pub(super) fn new(stream: St, writer: W, f: F) -> Self {
+#[derive(Debug, Clone, Copy)]
+enum State {
+    Write,
+    Next,
+    Complete,
+    Shutdown(bool),
+}
+
+impl<St: Stream, Wr, F> IntoMultipartWrite<St, Wr, F> {
+    pub(super) fn new(stream: St, writer: Wr, f: F) -> Self {
         Self {
             stream,
             writer: WriteBuf::new(writer, f),
             state: State::Write,
-            is_terminated: false,
         }
     }
 }
 
-impl<St, W, F> FusedStream for MapWriter<St, W, F>
+impl<St, Wr, F> FusedStream for IntoMultipartWrite<St, Wr, F>
 where
-    St: Stream,
-    W: MultipartWrite<St::Item>,
-    F: FnMut(W::Ret) -> bool,
+    St: FusedStream,
+    Wr: MultipartWrite<St::Item>,
+    F: FnMut(Wr::Ret) -> bool,
 {
     fn is_terminated(&self) -> bool {
-        self.is_terminated
+        self.stream.is_terminated()
     }
 }
 
-impl<St, W, F> Stream for MapWriter<St, W, F>
+impl<St, Wr, F> Stream for IntoMultipartWrite<St, Wr, F>
 where
     St: Stream,
-    W: MultipartWrite<St::Item>,
-    F: FnMut(W::Ret) -> bool,
+    Wr: MultipartWrite<St::Item>,
+    F: FnMut(Wr::Ret) -> bool,
 {
-    type Item = Result<W::Output, W::Error>;
+    type Item = Result<Wr::Output, Wr::Error>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
@@ -53,6 +63,7 @@ where
         loop {
             let next_state = match *this.state {
                 // Try to make the writer write its buffered item.
+                // Possibilities are:
                 // * Doesn't have a buffered input, return `State::Next` to poll
                 // the stream for the next item.
                 // * Returned `Some(true)`, which implies `poll_complete`.
@@ -69,7 +80,7 @@ where
                 },
                 // Poll for the next upstream item.
                 // If there is none, then do the last `poll_complete` if the
-                // writer is not empty, just end here otherwise.
+                // writer is not empty; end now otherwise.
                 State::Next => match ready!(this.stream.as_mut().poll_next(cx)) {
                     Some(next) => {
                         this.writer.as_mut().set_buffered(next);
@@ -89,7 +100,6 @@ where
                 // last iteration and we can end.
                 State::Shutdown(now) => {
                     if now {
-                        *this.is_terminated = true;
                         return Poll::Ready(None);
                     }
                     let output = ready!(this.writer.as_mut().poll_writer_complete(cx))?;
@@ -103,25 +113,17 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum State {
-    Write,
-    Next,
-    Complete,
-    Shutdown(bool),
-}
-
 #[pin_project::pin_project]
-struct WriteBuf<W, T, F> {
+struct WriteBuf<Wr, T, F> {
     #[pin]
-    writer: W,
+    writer: Wr,
     buffered: Option<T>,
     f: F,
     is_empty: bool,
 }
 
-impl<W, T, F> WriteBuf<W, T, F> {
-    fn new(writer: W, f: F) -> Self {
+impl<Wr, T, F> WriteBuf<Wr, T, F> {
+    fn new(writer: Wr, f: F) -> Self {
         Self {
             writer,
             buffered: None,
@@ -141,12 +143,13 @@ impl<W, T, F> WriteBuf<W, T, F> {
     fn poll_writer_complete(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Result<W::Output, W::Error>>
+    ) -> Poll<Result<Wr::Output, Wr::Error>>
     where
-        W: MultipartWrite<T>,
-        F: FnMut(W::Ret) -> bool,
+        Wr: MultipartWrite<T>,
+        F: FnMut(Wr::Ret) -> bool,
     {
         let mut this = self.project();
+        ready!(this.writer.as_mut().poll_flush(cx))?;
         let output = ready!(this.writer.as_mut().poll_complete(cx))?;
         *this.is_empty = true;
         Poll::Ready(Ok(output))
@@ -155,47 +158,31 @@ impl<W, T, F> WriteBuf<W, T, F> {
     fn poll_writer_send(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Result<Option<bool>, W::Error>>
+    ) -> Poll<Result<Option<bool>, Wr::Error>>
     where
-        W: MultipartWrite<T>,
-        F: FnMut(W::Ret) -> bool,
+        Wr: MultipartWrite<T>,
+        F: FnMut(Wr::Ret) -> bool,
     {
         let mut this = self.project();
 
-        if this.buffered.is_none() {
-            return Poll::Ready(Ok(None));
-        }
-
-        match this.writer.as_mut().poll_ready(cx) {
-            Poll::Pending => match this.writer.poll_flush(cx) {
-                Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-                Poll::Pending | Poll::Ready(Ok(())) => Poll::Pending,
-            },
-            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-            Poll::Ready(Ok(())) => {
-                let item = this
-                    .buffered
-                    .take()
-                    .expect("polled MapWriter after completion");
-
-                let ret = this.writer.as_mut().start_send(item).map(this.f)?;
-                *this.is_empty = false;
-
-                if ret {
-                    Poll::Ready(Ok(Some(true)))
-                } else {
-                    Poll::Ready(Ok(Some(false)))
-                }
-            }
+        if this.buffered.is_some() {
+            ready!(this.writer.as_mut().poll_ready(cx))?;
+            let item = this.buffered.take().unwrap();
+            let ret = this.writer.as_mut().start_send(item).map(this.f)?;
+            *this.is_empty = false;
+            Poll::Ready(Ok(Some(ret)))
+        } else {
+            Poll::Ready(Ok(None))
         }
     }
 }
 
-impl<W: std::fmt::Debug, T: std::fmt::Debug, F> std::fmt::Debug for WriteBuf<W, T, F> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<Wr: Debug, T: Debug, F> Debug for WriteBuf<Wr, T, F> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("WriteBuf")
             .field("writer", &self.writer)
             .field("buffered", &self.buffered)
+            .field("is_empty", &self.is_empty)
             .finish()
     }
 }

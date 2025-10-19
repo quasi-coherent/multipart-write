@@ -77,11 +77,11 @@ async fn writer_with() {
 }
 
 #[tokio::test]
-async fn map_writer_stream() {
+async fn into_multipart_write_stream() {
     let writer = TestWriter::default();
     let stream = futures::stream::iter(1..=10);
     let mut outputs = stream
-        .map_writer(writer, |ret| ret % 5 == 0)
+        .into_multipart_write(writer, |ret| ret % 5 == 0)
         .collect::<Vec<_>>()
         .await
         .into_iter()
@@ -101,7 +101,7 @@ async fn collect_complete_stream() {
         acc += &n.to_string();
         acc
     });
-    let (acc, out) = iter(1..=5).map(Ok).collect_complete(writer).await.unwrap();
+    let (acc, out) = iter(1..=5).map(Ok).collect_completed(writer).await.unwrap();
     assert_eq!(acc, "12345".to_string());
     assert_eq!(out, vec![1, 2, 3, 4, 5]);
 }

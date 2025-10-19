@@ -38,6 +38,9 @@ pub use map_part::MapPart;
 mod map_ret;
 pub use map_ret::MapRet;
 
+mod on_complete;
+pub use on_complete::OnComplete;
+
 mod send;
 pub use send::Send;
 
@@ -46,6 +49,8 @@ pub use then::Then;
 
 mod with;
 pub use with::With;
+
+impl<Wr: MultipartWrite<Part>, Part> MultipartWriteExt<Part> for Wr {}
 
 /// An extension trait for `MultipartWrite`rs providing a variety of convenient
 /// combinator functions.
@@ -154,6 +159,19 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         MapRet::new(self, f)
     }
 
+    /// Returns a writer wrapping this one and having the property that it
+    /// creates a new `self` after each `poll_complete`.
+    ///
+    /// The value `S` and closure `F` determine how this is done.
+    fn on_complete<S, F, Fut>(self, s: S, f: F) -> OnComplete<Self, S, F, Fut>
+    where
+        F: FnMut(&mut S) -> Fut,
+        Fut: Future<Output = Result<Option<Self>, Self::Error>>,
+        Self: Sized,
+    {
+        OnComplete::new(self, s, f)
+    }
+
     /// A convenience method for calling [`poll_ready`] on [`Unpin`] writer types.
     ///
     /// [`poll_ready`]: super::MultipartWrite::poll_ready
@@ -223,5 +241,3 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         With::new(self, f)
     }
 }
-
-impl<W: MultipartWrite<Part>, Part> MultipartWriteExt<Part> for W {}

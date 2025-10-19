@@ -1,4 +1,4 @@
-use crate::MultipartWrite;
+use crate::{FusedMultipartWrite, MultipartWrite};
 
 use futures::ready;
 use std::fmt::{self, Debug, Formatter};
@@ -8,25 +8,25 @@ use std::task::{Context, Poll};
 /// `MultipartWrite` for [`with`](super::MultipartWriteExt::with).
 #[must_use = "futures do nothing unless polled"]
 #[pin_project::pin_project]
-pub struct With<W, Part, U, Fut, F> {
+pub struct With<Wr, Part, U, Fut, F> {
     #[pin]
-    writer: W,
+    writer: Wr,
     f: F,
     #[pin]
     future: Option<Fut>,
     _f: std::marker::PhantomData<fn(U) -> Part>,
 }
 
-impl<W, Part, U, Fut, F> With<W, Part, U, Fut, F>
+impl<Wr, Part, U, Fut, F> With<Wr, Part, U, Fut, F>
 where
-    W: MultipartWrite<Part>,
+    Wr: MultipartWrite<Part>,
     F: FnMut(U) -> Fut,
     Fut: Future,
 {
-    pub(super) fn new<E>(writer: W, f: F) -> Self
+    pub(super) fn new<E>(writer: Wr, f: F) -> Self
     where
         Fut: Future<Output = Result<Part, E>>,
-        E: From<W::Error>,
+        E: From<Wr::Error>,
     {
         Self {
             writer,
@@ -37,31 +37,31 @@ where
     }
 
     /// Acquires a reference to the underlying writer.
-    pub fn get_ref(&self) -> &W {
+    pub fn get_ref(&self) -> &Wr {
         &self.writer
     }
 
     /// Acquires a mutable reference to the underlying writer.
     ///
     /// It is inadvisable to directly write to the underlying writer.
-    pub fn get_mut(&mut self) -> &mut W {
+    pub fn get_mut(&mut self) -> &mut Wr {
         &mut self.writer
     }
 
     /// Acquires a pinned mutable reference to the underlying writer.
     ///
     /// It is inadvisable to directly write to the underlying writer.
-    pub fn get_pin_mut(self: Pin<&mut Self>) -> Pin<&mut W> {
+    pub fn get_pin_mut(self: Pin<&mut Self>) -> Pin<&mut Wr> {
         self.project().writer
     }
 }
 
-impl<W, Part, U, Fut, F, E> With<W, Part, U, Fut, F>
+impl<Wr, Part, U, Fut, F, E> With<Wr, Part, U, Fut, F>
 where
-    W: MultipartWrite<Part>,
+    Wr: MultipartWrite<Part>,
     F: FnMut(U) -> Fut,
     Fut: Future<Output = Result<Part, E>>,
-    E: From<W::Error>,
+    E: From<Wr::Error>,
 {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), E>> {
         let mut this = self.project();
@@ -76,15 +76,27 @@ where
     }
 }
 
-impl<W, Part, U, Fut, F, E> MultipartWrite<U> for With<W, Part, U, Fut, F>
+impl<Wr, Part, U, Fut, F, E> FusedMultipartWrite<U> for With<Wr, Part, U, Fut, F>
 where
-    W: MultipartWrite<Part>,
+    Wr: FusedMultipartWrite<Part>,
     F: FnMut(U) -> Fut,
     Fut: Future<Output = Result<Part, E>>,
-    E: From<W::Error>,
+    E: From<Wr::Error>,
+{
+    fn is_terminated(&self) -> bool {
+        self.writer.is_terminated()
+    }
+}
+
+impl<Wr, Part, U, Fut, F, E> MultipartWrite<U> for With<Wr, Part, U, Fut, F>
+where
+    Wr: MultipartWrite<Part>,
+    F: FnMut(U) -> Fut,
+    Fut: Future<Output = Result<Part, E>>,
+    E: From<Wr::Error>,
 {
     type Ret = ();
-    type Output = W::Output;
+    type Output = Wr::Output;
     type Error = E;
 
     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -115,9 +127,9 @@ where
     }
 }
 
-impl<W, Part, U, Fut, F> Debug for With<W, Part, U, Fut, F>
+impl<Wr, Part, U, Fut, F> Debug for With<Wr, Part, U, Fut, F>
 where
-    W: Debug,
+    Wr: Debug,
     Fut: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {

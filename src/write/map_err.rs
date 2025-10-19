@@ -1,4 +1,4 @@
-use crate::MultipartWrite;
+use crate::{FusedMultipartWrite, MultipartWrite};
 
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -7,44 +7,54 @@ use std::task::{Context, Poll};
 #[derive(Debug)]
 #[must_use = "futures do nothing unless polled"]
 #[pin_project::pin_project]
-pub struct MapErr<W, F> {
+pub struct MapErr<Wr, F> {
     #[pin]
-    writer: W,
+    writer: Wr,
     f: F,
 }
 
-impl<W, F> MapErr<W, F> {
-    pub(super) fn new(writer: W, f: F) -> Self {
+impl<Wr, F> MapErr<Wr, F> {
+    pub(super) fn new(writer: Wr, f: F) -> Self {
         Self { writer, f }
     }
 
     /// Acquires a reference to the underlying writer.
-    pub fn get_ref(&self) -> &W {
+    pub fn get_ref(&self) -> &Wr {
         &self.writer
     }
 
     /// Acquires a mutable reference to the underlying writer.
     ///
     /// It is inadvisable to directly write to the underlying writer.
-    pub fn get_mut(&mut self) -> &mut W {
+    pub fn get_mut(&mut self) -> &mut Wr {
         &mut self.writer
     }
 
     /// Acquires a pinned mutable reference to the underlying writer.
     ///
     /// It is inadvisable to directly write to the underlying writer.
-    pub fn get_pin_mut(self: Pin<&mut Self>) -> Pin<&mut W> {
+    pub fn get_pin_mut(self: Pin<&mut Self>) -> Pin<&mut Wr> {
         self.project().writer
     }
 }
 
-impl<W, F, P, E> MultipartWrite<P> for MapErr<W, F>
+impl<Wr, F, Part, E> FusedMultipartWrite<Part> for MapErr<Wr, F>
 where
-    W: MultipartWrite<P>,
-    F: FnMut(W::Error) -> E,
+    Wr: FusedMultipartWrite<Part>,
+    F: FnMut(Wr::Error) -> E,
 {
-    type Ret = W::Ret;
-    type Output = W::Output;
+    fn is_terminated(&self) -> bool {
+        self.writer.is_terminated()
+    }
+}
+
+impl<Wr, F, Part, E> MultipartWrite<Part> for MapErr<Wr, F>
+where
+    Wr: MultipartWrite<Part>,
+    F: FnMut(Wr::Error) -> E,
+{
+    type Ret = Wr::Ret;
+    type Output = Wr::Output;
     type Error = E;
 
     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -55,7 +65,7 @@ where
             .map_err(self.as_mut().project().f)
     }
 
-    fn start_send(mut self: Pin<&mut Self>, part: P) -> Result<Self::Ret, Self::Error> {
+    fn start_send(mut self: Pin<&mut Self>, part: Part) -> Result<Self::Ret, Self::Error> {
         self.as_mut()
             .project()
             .writer

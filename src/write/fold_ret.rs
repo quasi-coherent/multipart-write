@@ -1,4 +1,4 @@
-use crate::MultipartWrite;
+use crate::{FusedMultipartWrite, MultipartWrite};
 
 use futures::ready;
 use std::fmt::{self, Debug, Formatter};
@@ -8,15 +8,15 @@ use std::task::{Context, Poll};
 /// `MultipartWrite` for [`fold_ret`](super::MultipartWriteExt::fold_ret).
 #[must_use = "futures do nothing unless polled"]
 #[pin_project::pin_project]
-pub struct FoldRet<W, F, T> {
+pub struct FoldRet<Wr, F, T> {
     #[pin]
-    writer: W,
+    writer: Wr,
     acc: Option<T>,
     f: F,
 }
 
-impl<W, F, T> FoldRet<W, F, T> {
-    pub(super) fn new(writer: W, id: T, f: F) -> Self {
+impl<Wr, F, T> FoldRet<Wr, F, T> {
+    pub(super) fn new(writer: Wr, id: T, f: F) -> Self {
         Self {
             writer,
             acc: Some(id),
@@ -25,33 +25,43 @@ impl<W, F, T> FoldRet<W, F, T> {
     }
 
     /// Acquires a reference to the underlying writer.
-    pub fn get_ref(&self) -> &W {
+    pub fn get_ref(&self) -> &Wr {
         &self.writer
     }
 
     /// Acquires a mutable reference to the underlying writer.
     ///
     /// It is inadvisable to directly write to the underlying writer.
-    pub fn get_mut(&mut self) -> &mut W {
+    pub fn get_mut(&mut self) -> &mut Wr {
         &mut self.writer
     }
 
     /// Acquires a pinned mutable reference to the underlying writer.
     ///
     /// It is inadvisable to directly write to the underlying writer.
-    pub fn get_pin_mut(self: Pin<&mut Self>) -> Pin<&mut W> {
+    pub fn get_pin_mut(self: Pin<&mut Self>) -> Pin<&mut Wr> {
         self.project().writer
     }
 }
 
-impl<W, F, T, Part> MultipartWrite<Part> for FoldRet<W, F, T>
+impl<Wr, F, T, Part> FusedMultipartWrite<Part> for FoldRet<Wr, F, T>
 where
-    W: MultipartWrite<Part>,
-    F: FnMut(T, &W::Ret) -> T,
+    Wr: FusedMultipartWrite<Part>,
+    F: FnMut(T, &Wr::Ret) -> T,
 {
-    type Ret = W::Ret;
-    type Output = (T, W::Output);
-    type Error = W::Error;
+    fn is_terminated(&self) -> bool {
+        self.writer.is_terminated()
+    }
+}
+
+impl<Wr, F, T, Part> MultipartWrite<Part> for FoldRet<Wr, F, T>
+where
+    Wr: MultipartWrite<Part>,
+    F: FnMut(T, &Wr::Ret) -> T,
+{
+    type Ret = Wr::Ret;
+    type Output = (T, Wr::Output);
+    type Error = Wr::Error;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.project().writer.poll_ready(cx)
@@ -80,9 +90,9 @@ where
     }
 }
 
-impl<W, F, T> Debug for FoldRet<W, F, T>
+impl<Wr, F, T> Debug for FoldRet<Wr, F, T>
 where
-    W: Debug,
+    Wr: Debug,
     T: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {

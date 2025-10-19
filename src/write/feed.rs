@@ -1,6 +1,6 @@
-use crate::MultipartWrite;
+use crate::{FusedMultipartWrite, MultipartWrite};
 
-use futures::future::Future;
+use futures::future::{FusedFuture, Future};
 use futures::ready;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -8,22 +8,22 @@ use std::task::{Context, Poll};
 /// Future for [`feed`](super::MultipartWriteExt::feed).
 #[derive(Debug)]
 #[must_use = "futures do nothing unless polled"]
-pub struct Feed<'a, W: ?Sized, Part> {
-    writer: &'a mut W,
+pub struct Feed<'a, Wr: ?Sized, Part> {
+    writer: &'a mut Wr,
     buffered: Option<Part>,
 }
 
-impl<W: ?Sized + Unpin, Part> Unpin for Feed<'_, W, Part> {}
+impl<Wr: ?Sized + Unpin, Part> Unpin for Feed<'_, Wr, Part> {}
 
-impl<'a, W: ?Sized + MultipartWrite<Part> + Unpin, Part> Feed<'a, W, Part> {
-    pub(super) fn new(writer: &'a mut W, part: Part) -> Self {
+impl<'a, Wr: ?Sized + MultipartWrite<Part> + Unpin, Part> Feed<'a, Wr, Part> {
+    pub(super) fn new(writer: &'a mut Wr, part: Part) -> Self {
         Self {
             writer,
             buffered: Some(part),
         }
     }
 
-    pub(super) fn writer_pin_mut(&mut self) -> Pin<&mut W> {
+    pub(super) fn writer_pin_mut(&mut self) -> Pin<&mut Wr> {
         Pin::new(self.writer)
     }
 
@@ -32,8 +32,17 @@ impl<'a, W: ?Sized + MultipartWrite<Part> + Unpin, Part> Feed<'a, W, Part> {
     }
 }
 
-impl<W: ?Sized + MultipartWrite<Part> + Unpin, Part> Future for Feed<'_, W, Part> {
-    type Output = Result<W::Ret, W::Error>;
+impl<Wr, Part> FusedFuture for Feed<'_, Wr, Part>
+where
+    Wr: FusedMultipartWrite<Part> + Unpin,
+{
+    fn is_terminated(&self) -> bool {
+        self.writer.is_terminated()
+    }
+}
+
+impl<Wr: ?Sized + MultipartWrite<Part> + Unpin, Part> Future for Feed<'_, Wr, Part> {
+    type Output = Result<Wr::Ret, Wr::Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();

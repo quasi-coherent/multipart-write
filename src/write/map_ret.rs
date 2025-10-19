@@ -1,4 +1,4 @@
-use crate::MultipartWrite;
+use crate::{FusedMultipartWrite, MultipartWrite};
 
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -7,51 +7,61 @@ use std::task::{Context, Poll};
 #[derive(Debug)]
 #[must_use = "futures do nothing unless polled"]
 #[pin_project::pin_project]
-pub struct MapRet<W, F> {
+pub struct MapRet<Wr, F> {
     #[pin]
-    writer: W,
+    writer: Wr,
     f: F,
 }
 
-impl<W, F> MapRet<W, F> {
-    pub(super) fn new(writer: W, f: F) -> Self {
+impl<Wr, F> MapRet<Wr, F> {
+    pub(super) fn new(writer: Wr, f: F) -> Self {
         Self { writer, f }
     }
 
     /// Acquires a reference to the underlying writer.
-    pub fn get_ref(&self) -> &W {
+    pub fn get_ref(&self) -> &Wr {
         &self.writer
     }
 
     /// Acquires a mutable reference to the underlying writer.
     ///
     /// It is inadvisable to directly write to the underlying writer.
-    pub fn get_mut(&mut self) -> &mut W {
+    pub fn get_mut(&mut self) -> &mut Wr {
         &mut self.writer
     }
 
     /// Acquires a pinned mutable reference to the underlying writer.
     ///
     /// It is inadvisable to directly write to the underlying writer.
-    pub fn get_pin_mut(self: Pin<&mut Self>) -> Pin<&mut W> {
+    pub fn get_pin_mut(self: Pin<&mut Self>) -> Pin<&mut Wr> {
         self.project().writer
     }
 }
 
-impl<U, W, F, P> MultipartWrite<P> for MapRet<W, F>
+impl<U, Wr, F, Part> FusedMultipartWrite<Part> for MapRet<Wr, F>
 where
-    W: MultipartWrite<P>,
-    F: FnMut(W::Ret) -> U,
+    Wr: FusedMultipartWrite<Part>,
+    F: FnMut(Wr::Ret) -> U,
+{
+    fn is_terminated(&self) -> bool {
+        self.writer.is_terminated()
+    }
+}
+
+impl<U, Wr, F, Part> MultipartWrite<Part> for MapRet<Wr, F>
+where
+    Wr: MultipartWrite<Part>,
+    F: FnMut(Wr::Ret) -> U,
 {
     type Ret = U;
-    type Output = W::Output;
-    type Error = W::Error;
+    type Output = Wr::Output;
+    type Error = Wr::Error;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.project().writer.poll_ready(cx)
     }
 
-    fn start_send(mut self: Pin<&mut Self>, part: P) -> Result<Self::Ret, Self::Error> {
+    fn start_send(mut self: Pin<&mut Self>, part: Part) -> Result<Self::Ret, Self::Error> {
         self.as_mut()
             .project()
             .writer

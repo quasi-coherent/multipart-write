@@ -1,4 +1,4 @@
-use crate::MultipartWrite;
+use crate::{FusedMultipartWrite, MultipartWrite};
 
 use std::collections::VecDeque;
 use std::pin::Pin;
@@ -10,15 +10,15 @@ use std::task::{self, Context, Poll};
 #[must_use = "futures do nothing unless polled"]
 #[derive(Debug)]
 #[pin_project::pin_project]
-pub struct Buffered<W, Part> {
+pub struct Buffered<Wr, Part> {
     #[pin]
-    writer: W,
+    writer: Wr,
     capacity: usize,
     buf: VecDeque<Part>,
 }
 
-impl<W: MultipartWrite<Part>, Part> Buffered<W, Part> {
-    pub(super) fn new(writer: W, capacity: usize) -> Self {
+impl<Wr: MultipartWrite<Part>, Part> Buffered<Wr, Part> {
+    pub(super) fn new(writer: Wr, capacity: usize) -> Self {
         Self {
             writer,
             capacity,
@@ -27,25 +27,25 @@ impl<W: MultipartWrite<Part>, Part> Buffered<W, Part> {
     }
 
     /// Acquires a reference to the underlying writer.
-    pub fn get_ref(&self) -> &W {
+    pub fn get_ref(&self) -> &Wr {
         &self.writer
     }
 
     /// Acquires a mutable reference to the underlying writer.
     ///
     /// It is inadvisable to directly write to the underlying writer.
-    pub fn get_mut(&mut self) -> &mut W {
+    pub fn get_mut(&mut self) -> &mut Wr {
         &mut self.writer
     }
 
     /// Acquires a pinned mutable reference to the underlying writer.
     ///
     /// It is inadvisable to directly write to the underlying writer.
-    pub fn get_pin_mut(self: Pin<&mut Self>) -> Pin<&mut W> {
+    pub fn get_pin_mut(self: Pin<&mut Self>) -> Pin<&mut Wr> {
         self.project().writer
     }
 
-    fn try_empty_buffer(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), W::Error>> {
+    fn try_empty_buffer(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Wr::Error>> {
         let mut this = self.project();
 
         task::ready!(this.writer.as_mut().poll_ready(cx))?;
@@ -59,13 +59,22 @@ impl<W: MultipartWrite<Part>, Part> Buffered<W, Part> {
     }
 }
 
-impl<W, Part> MultipartWrite<Part> for Buffered<W, Part>
+impl<Wr, Part> FusedMultipartWrite<Part> for Buffered<Wr, Part>
 where
-    W: MultipartWrite<Part>,
+    Wr: FusedMultipartWrite<Part>,
+{
+    fn is_terminated(&self) -> bool {
+        self.writer.is_terminated()
+    }
+}
+
+impl<Wr, Part> MultipartWrite<Part> for Buffered<Wr, Part>
+where
+    Wr: MultipartWrite<Part>,
 {
     type Ret = ();
-    type Output = W::Output;
-    type Error = W::Error;
+    type Output = Wr::Output;
+    type Error = Wr::Error;
 
     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         if self.capacity == 0 {

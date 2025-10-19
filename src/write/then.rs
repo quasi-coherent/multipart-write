@@ -1,4 +1,4 @@
-use crate::MultipartWrite;
+use crate::{FusedMultipartWrite, MultipartWrite};
 
 use futures::ready;
 use std::pin::Pin;
@@ -8,16 +8,16 @@ use std::task::{Context, Poll};
 #[derive(Debug)]
 #[must_use = "futures do nothing unless polled"]
 #[pin_project::pin_project]
-pub struct Then<W, F, Fut> {
+pub struct Then<Wr, F, Fut> {
     #[pin]
-    writer: W,
+    writer: Wr,
     #[pin]
     output: Option<Fut>,
     f: F,
 }
 
-impl<W, F, Fut> Then<W, F, Fut> {
-    pub(super) fn new(writer: W, f: F) -> Self {
+impl<Wr, F, Fut> Then<Wr, F, Fut> {
+    pub(super) fn new(writer: Wr, f: F) -> Self {
         Self {
             writer,
             output: None,
@@ -26,34 +26,45 @@ impl<W, F, Fut> Then<W, F, Fut> {
     }
 
     /// Acquires a reference to the underlying writer.
-    pub fn get_ref(&self) -> &W {
+    pub fn get_ref(&self) -> &Wr {
         &self.writer
     }
 
     /// Acquires a mutable reference to the underlying writer.
     ///
     /// It is inadvisable to directly write to the underlying writer.
-    pub fn get_mut(&mut self) -> &mut W {
+    pub fn get_mut(&mut self) -> &mut Wr {
         &mut self.writer
     }
 
     /// Acquires a pinned mutable reference to the underlying writer.
     ///
     /// It is inadvisable to directly write to the underlying writer.
-    pub fn get_pin_mut(self: Pin<&mut Self>) -> Pin<&mut W> {
+    pub fn get_pin_mut(self: Pin<&mut Self>) -> Pin<&mut Wr> {
         self.project().writer
     }
 }
 
-impl<W, F, Fut, Part> MultipartWrite<Part> for Then<W, F, Fut>
+impl<Wr, F, Fut, Part> FusedMultipartWrite<Part> for Then<Wr, F, Fut>
 where
-    W: MultipartWrite<Part>,
-    F: FnMut(W::Output) -> Fut,
+    Wr: FusedMultipartWrite<Part>,
+    F: FnMut(Wr::Output) -> Fut,
     Fut: Future,
 {
-    type Ret = W::Ret;
+    fn is_terminated(&self) -> bool {
+        self.writer.is_terminated()
+    }
+}
+
+impl<Wr, F, Fut, Part> MultipartWrite<Part> for Then<Wr, F, Fut>
+where
+    Wr: MultipartWrite<Part>,
+    F: FnMut(Wr::Output) -> Fut,
+    Fut: Future,
+{
+    type Ret = Wr::Ret;
     type Output = Fut::Output;
-    type Error = W::Error;
+    type Error = Wr::Error;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.project().writer.poll_ready(cx)

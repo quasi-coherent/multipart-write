@@ -75,6 +75,13 @@ pub trait MultipartWrite<Part> {
     ) -> Poll<Result<Self::Output, Self::Error>>;
 }
 
+/// A writer that tracks whether or not the underlying writer should no longer
+/// be polled.
+pub trait FusedMultipartWrite<Part>: MultipartWrite<Part> {
+    /// Returns `true` if the writer should no longer be polled.
+    fn is_terminated(&self) -> bool;
+}
+
 impl<W: ?Sized + MultipartWrite<Part> + Unpin, Part> MultipartWrite<Part> for &mut W {
     type Ret = W::Ret;
     type Output = W::Output;
