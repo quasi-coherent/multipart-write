@@ -8,7 +8,7 @@
 //!
 //! [`Sink`]: https://docs.rs/crate/futures-sink/0.3.31
 #![cfg_attr(docsrs, feature(doc_cfg))]
-use std::ops::{Deref, DerefMut};
+use std::ops::DerefMut;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -75,6 +75,15 @@ pub trait MultipartWrite<Part> {
     ) -> Poll<Result<Self::Output, Self::Error>>;
 }
 
+/// An owned, dynamically typed [`MultipartWrite`] for use in cases where it is
+/// not possible or desirable to statically type it.
+pub type BoxMultipartWrite<'a, Part, R, T, E> =
+    Pin<Box<dyn MultipartWrite<Part, Ret = R, Output = T, Error = E> + Send + 'a>>;
+
+/// `BoxMultipartWrite` but without the `Send` requirement.
+pub type LocalBoxMultipartWrite<'a, Part, R, T, E> =
+    Pin<Box<dyn MultipartWrite<Part, Ret = R, Output = T, Error = E> + 'a>>;
+
 /// A writer that tracks whether or not the underlying writer should no longer
 /// be polled.
 pub trait FusedMultipartWrite<Part>: MultipartWrite<Part> {
@@ -109,7 +118,7 @@ impl<W: ?Sized + MultipartWrite<Part> + Unpin, Part> MultipartWrite<Part> for &m
 
 impl<W: ?Sized + FusedMultipartWrite<Part> + Unpin, Part> FusedMultipartWrite<Part> for &mut W {
     fn is_terminated(&self) -> bool {
-        W::is_terminated(self)
+        <W as FusedMultipartWrite<Part>>::is_terminated(&**self)
     }
 }
 
@@ -148,6 +157,6 @@ where
     P::Target: FusedMultipartWrite<Part>,
 {
     fn is_terminated(&self) -> bool {
-        self.deref().is_terminated()
+        <P::Target as FusedMultipartWrite<Part>>::is_terminated(&**self)
     }
 }

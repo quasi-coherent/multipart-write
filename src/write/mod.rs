@@ -2,7 +2,7 @@
 //!
 //! This module contains the trait [`MultipartWriteExt`], which provides adapters
 //! for chaining and composing [`MultipartWrite`]rs.
-use crate::MultipartWrite;
+use crate::{BoxMultipartWrite, LocalBoxMultipartWrite, MultipartWrite};
 
 use futures_core::future::Future;
 use std::pin::Pin;
@@ -41,8 +41,8 @@ pub use map_part::MapPart;
 mod map_ret;
 pub use map_ret::MapRet;
 
-mod send;
-pub use send::Send;
+mod send_part;
+pub use send_part::SendPart;
 
 mod then;
 pub use then::Then;
@@ -69,6 +69,26 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         Self: Sized,
     {
         Bootstrapped::new(self, s, f)
+    }
+
+    /// Wrap this writer in a `Box`, pinning it.
+    fn boxed<'a>(self) -> BoxMultipartWrite<'a, Part, Self::Ret, Self::Output, Self::Error>
+    where
+        Self: Sized + Send + 'a,
+    {
+        Box::pin(self)
+    }
+
+    /// Wrap this writer in a `Box`, pinning it.
+    ///
+    /// Similar to `boxed` but without the `Send` requirement.
+    fn boxed_local<'a>(
+        self,
+    ) -> LocalBoxMultipartWrite<'a, Part, Self::Ret, Self::Output, Self::Error>
+    where
+        Self: Sized + 'a,
+    {
+        Box::pin(self)
     }
 
     /// Adds a fixed size buffer to the current writer.
@@ -213,11 +233,11 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
 
     /// A future that completes when a part has been fully processed into the
     /// writer, including flushing.
-    fn send(&mut self, part: Part) -> Send<'_, Self, Part>
+    fn send_part(&mut self, part: Part) -> SendPart<'_, Self, Part>
     where
         Self: Unpin,
     {
-        Send::new(self, part)
+        SendPart::new(self, part)
     }
 
     /// Chain a computation on the output of a writer.

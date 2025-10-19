@@ -58,15 +58,15 @@ impl MultipartWrite<usize> for TestWriter {
 #[tokio::test]
 async fn trait_futures() {
     let mut writer = TestWriter::default();
-    writer.send(1).await.ok();
-    writer.send(2).await.ok();
-    writer.send(3).await.ok();
-    writer.flush().await.ok();
+    writer.send_part(1).await.unwrap();
+    writer.send_part(2).await.unwrap();
+    writer.send_part(3).await.unwrap();
+    writer.flush().await.unwrap();
     let out1 = writer.complete().await.unwrap();
 
-    writer.send(10).await.ok();
-    writer.send(20).await.ok();
-    writer.flush().await.ok();
+    writer.send_part(10).await.unwrap();
+    writer.send_part(20).await.unwrap();
+    writer.flush().await.unwrap();
     let out2 = writer.complete().await.unwrap();
 
     assert_eq!(out1, vec![1, 2, 3]);
@@ -77,9 +77,9 @@ async fn trait_futures() {
 async fn writer_map() {
     let mut writer = TestWriter::default().map(|ns| ns.iter().sum::<usize>());
     for n in 1..=5_usize {
-        writer.send(n).await.ok();
+        writer.send_part(n).await.unwrap();
     }
-    writer.complete().await.ok();
+    writer.complete().await.unwrap();
     let out = writer.complete().await.unwrap();
     assert_eq!(out, 15);
 }
@@ -87,10 +87,10 @@ async fn writer_map() {
 #[tokio::test]
 async fn writer_with() {
     let mut writer = TestWriter::default().with(|n| ready(Ok::<usize, String>(n + 1_usize)));
-    writer.send(1).await.ok();
-    writer.send(2).await.ok();
-    writer.send(3).await.ok();
-    writer.flush().await.ok();
+    writer.send_part(1).await.unwrap();
+    writer.send_part(2).await.unwrap();
+    writer.send_part(3).await.unwrap();
+    writer.flush().await.unwrap();
     let out = writer.complete().await.unwrap();
 
     assert_eq!(out, vec![2, 3, 4]);

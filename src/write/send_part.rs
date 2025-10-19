@@ -7,16 +7,16 @@ use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-/// Future for [`send`](super::MultipartWriteExt::send).
+/// Future for [`send_part`](super::MultipartWriteExt::send_part).
 #[must_use = "futures do nothing unless polled"]
-pub struct Send<'a, Wr: ?Sized + MultipartWrite<Part>, Part> {
+pub struct SendPart<'a, Wr: ?Sized + MultipartWrite<Part>, Part> {
     feed: Feed<'a, Wr, Part>,
     output: Option<Wr::Ret>,
 }
 
-impl<Wr: ?Sized + MultipartWrite<Part> + Unpin, Part> Unpin for Send<'_, Wr, Part> {}
+impl<Wr: ?Sized + MultipartWrite<Part> + Unpin, Part> Unpin for SendPart<'_, Wr, Part> {}
 
-impl<'a, Wr: ?Sized + MultipartWrite<Part> + Unpin, Part> Send<'a, Wr, Part> {
+impl<'a, Wr: ?Sized + MultipartWrite<Part> + Unpin, Part> SendPart<'a, Wr, Part> {
     pub(super) fn new(writer: &'a mut Wr, part: Part) -> Self {
         Self {
             feed: Feed::new(writer, part),
@@ -25,7 +25,7 @@ impl<'a, Wr: ?Sized + MultipartWrite<Part> + Unpin, Part> Send<'a, Wr, Part> {
     }
 }
 
-impl<Wr, Part> FusedFuture for Send<'_, Wr, Part>
+impl<Wr, Part> FusedFuture for SendPart<'_, Wr, Part>
 where
     Wr: FusedMultipartWrite<Part> + Unpin,
 {
@@ -34,7 +34,7 @@ where
     }
 }
 
-impl<Wr: ?Sized + MultipartWrite<Part> + Unpin, Part> Future for Send<'_, Wr, Part> {
+impl<Wr: ?Sized + MultipartWrite<Part> + Unpin, Part> Future for SendPart<'_, Wr, Part> {
     type Output = Result<Wr::Ret, Wr::Error>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -47,20 +47,23 @@ impl<Wr: ?Sized + MultipartWrite<Part> + Unpin, Part> Future for Send<'_, Wr, Pa
         }
 
         ready!(this.feed.writer_pin_mut().poll_flush(cx))?;
-        let output = this.output.take().expect("polled Send after completion");
+        let output = this
+            .output
+            .take()
+            .expect("polled SendPart after completion");
 
         Poll::Ready(Ok(output))
     }
 }
 
-impl<Wr, Part> Debug for Send<'_, Wr, Part>
+impl<Wr, Part> Debug for SendPart<'_, Wr, Part>
 where
     Wr: MultipartWrite<Part> + Debug,
     Part: Debug,
     Wr::Ret: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Send")
+        f.debug_struct("SendPart")
             .field("feed", &self.feed)
             .field("output", &self.output)
             .finish()
