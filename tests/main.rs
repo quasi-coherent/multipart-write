@@ -77,11 +77,11 @@ async fn writer_with() {
 }
 
 #[tokio::test]
-async fn into_multipart_write_stream() {
+async fn feed_multipart_write_stream() {
     let writer = TestWriter::default();
     let stream = futures::stream::iter(1..=10);
     let mut outputs = stream
-        .into_multipart_write(writer, |ret| ret % 5 == 0)
+        .feed_multipart_write(writer, |ret| ret % 5 == 0)
         .collect::<Vec<_>>()
         .await
         .into_iter()

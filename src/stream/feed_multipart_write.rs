@@ -6,13 +6,13 @@ use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-/// The type of value for [`into_multipart_write`].
+/// Stream for  [`feed_multipart_write`].
 ///
-/// [`into_multipart_write`]: super::MultipartStreamExt::into_multipart_write
+/// [`feed_multipart_write`]: super::MultipartStreamExt::feed_multipart_write
 #[derive(Debug)]
 #[must_use = "futures do nothing unless polled"]
 #[pin_project::pin_project]
-pub struct IntoMultipartWrite<St: Stream, Wr, F> {
+pub struct FeedMultipartWrite<St: Stream, Wr, F> {
     #[pin]
     stream: St,
     #[pin]
@@ -28,7 +28,7 @@ enum State {
     Shutdown(bool),
 }
 
-impl<St: Stream, Wr, F> IntoMultipartWrite<St, Wr, F> {
+impl<St: Stream, Wr, F> FeedMultipartWrite<St, Wr, F> {
     pub(super) fn new(stream: St, writer: Wr, f: F) -> Self {
         Self {
             stream,
@@ -38,7 +38,7 @@ impl<St: Stream, Wr, F> IntoMultipartWrite<St, Wr, F> {
     }
 }
 
-impl<St, Wr, F> FusedStream for IntoMultipartWrite<St, Wr, F>
+impl<St, Wr, F> FusedStream for FeedMultipartWrite<St, Wr, F>
 where
     St: FusedStream,
     Wr: MultipartWrite<St::Item>,
@@ -49,7 +49,7 @@ where
     }
 }
 
-impl<St, Wr, F> Stream for IntoMultipartWrite<St, Wr, F>
+impl<St, Wr, F> Stream for FeedMultipartWrite<St, Wr, F>
 where
     St: Stream,
     Wr: MultipartWrite<St::Item>,

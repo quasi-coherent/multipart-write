@@ -6,24 +6,23 @@ use futures::stream::Stream;
 mod collect_completed;
 pub use collect_completed::CollectCompleted;
 
-mod for_each_complete;
-pub use for_each_complete::ForEachComplete;
+mod feed_multipart_write;
+pub use feed_multipart_write::FeedMultipartWrite;
 
-mod into_multipart_write;
-pub use into_multipart_write::IntoMultipartWrite;
+impl<St: Stream> MultipartStreamExt for St {}
 
 /// Extension trait for combining streams with [`MultipartWrite`]rs.
 pub trait MultipartStreamExt: Stream {
     /// This adapter transforms the stream into a new stream whose item type is
     /// the output of the multipart writer writing parts until the closure `F`
     /// indicates the writer should be completed.
-    fn into_multipart_write<Wr, F>(self, writer: Wr, f: F) -> IntoMultipartWrite<Self, Wr, F>
+    fn feed_multipart_write<Wr, F>(self, writer: Wr, f: F) -> FeedMultipartWrite<Self, Wr, F>
     where
         Wr: MultipartWrite<Self::Item>,
         F: FnMut(Wr::Ret) -> bool,
         Self: Sized,
     {
-        IntoMultipartWrite::new(self, writer, f)
+        FeedMultipartWrite::new(self, writer, f)
     }
 
     /// Collects a stream by writing to a `MultipartWrite`, returning the
@@ -36,5 +35,3 @@ pub trait MultipartStreamExt: Stream {
         CollectCompleted::new(self, writer)
     }
 }
-
-impl<St: Stream> MultipartStreamExt for St {}
