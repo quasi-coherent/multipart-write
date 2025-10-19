@@ -91,7 +91,7 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// writer.
     ///
     /// Unlike `write`, the returned future does not flush the writer.  It is the
-    /// caller's responsibility  to ensure all pending items are processed, which
+    /// caller's responsibility to ensure all pending items are processed, which
     /// can be done with `flush` or `complete`.
     fn feed(&mut self, part: Part) -> Feed<'_, Self, Part>
     where
@@ -166,7 +166,7 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     fn on_complete<S, F, Fut>(self, s: S, f: F) -> OnComplete<Self, S, F, Fut>
     where
         F: FnMut(&mut S) -> Fut,
-        Fut: Future<Output = Result<Option<Self>, Self::Error>>,
+        Fut: Future<Output = Result<Self, Self::Error>>,
         Self: Sized,
     {
         OnComplete::new(self, s, f)

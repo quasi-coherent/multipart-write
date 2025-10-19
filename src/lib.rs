@@ -8,7 +8,7 @@
 //!
 //! [`Sink`]: https://docs.rs/crate/futures-sink/0.3.31
 #![cfg_attr(docsrs, feature(doc_cfg))]
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -107,6 +107,12 @@ impl<W: ?Sized + MultipartWrite<Part> + Unpin, Part> MultipartWrite<Part> for &m
     }
 }
 
+impl<W: ?Sized + FusedMultipartWrite<Part> + Unpin, Part> FusedMultipartWrite<Part> for &mut W {
+    fn is_terminated(&self) -> bool {
+        W::is_terminated(self)
+    }
+}
+
 impl<P, Part> MultipartWrite<Part> for Pin<P>
 where
     P: DerefMut + Unpin,
@@ -133,5 +139,15 @@ where
         cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>> {
         self.get_mut().as_mut().poll_complete(cx)
+    }
+}
+
+impl<P, Part> FusedMultipartWrite<Part> for Pin<P>
+where
+    P: DerefMut + Unpin,
+    P::Target: FusedMultipartWrite<Part>,
+{
+    fn is_terminated(&self) -> bool {
+        self.deref().is_terminated()
     }
 }
