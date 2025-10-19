@@ -1,20 +1,21 @@
 use crate::{FusedMultipartWrite, MultipartWrite};
 
 use std::collections::VecDeque;
+use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{self, Context, Poll};
 
-/// `MultipartWrite` for the [`buffered`] method.
-///
-/// [`buffered`]: super::MultipartWriteExt::buffered
-#[must_use = "futures do nothing unless polled"]
-#[derive(Debug)]
-#[pin_project::pin_project]
-pub struct Buffered<Wr, Part> {
-    #[pin]
-    writer: Wr,
-    capacity: usize,
-    buf: VecDeque<Part>,
+pin_project_lite::pin_project! {
+    /// `MultipartWrite` for the [`buffered`] method.
+    ///
+    /// [`buffered`]: super::MultipartWriteExt::buffered
+    #[must_use = "futures do nothing unless polled"]
+    pub struct Buffered<Wr, Part> {
+        #[pin]
+        writer: Wr,
+        capacity: usize,
+        buf: VecDeque<Part>,
+    }
 }
 
 impl<Wr: MultipartWrite<Part>, Part> Buffered<Wr, Part> {
@@ -108,5 +109,15 @@ where
     ) -> Poll<Result<Self::Output, Self::Error>> {
         task::ready!(self.as_mut().try_empty_buffer(cx))?;
         self.project().writer.poll_complete(cx)
+    }
+}
+
+impl<Wr: Debug, Part: Debug> Debug for Buffered<Wr, Part> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Buffered")
+            .field("writer", &self.writer)
+            .field("capacity", &self.capacity)
+            .field("buf", &self.buf)
+            .finish()
     }
 }

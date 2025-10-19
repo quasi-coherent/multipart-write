@@ -2,11 +2,11 @@ use crate::{FusedMultipartWrite, MultipartWrite};
 
 use futures_core::future::{FusedFuture, Future};
 use futures_core::ready;
+use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 /// Future for [`feed`](super::MultipartWriteExt::feed).
-#[derive(Debug)]
 #[must_use = "futures do nothing unless polled"]
 pub struct Feed<'a, Wr: ?Sized, Part> {
     writer: &'a mut Wr,
@@ -51,5 +51,14 @@ impl<Wr: ?Sized + MultipartWrite<Part> + Unpin, Part> Future for Feed<'_, Wr, Pa
         let part = this.buffered.take().expect("polled Feed after completion");
         let ret = writer.as_mut().start_send(part);
         Poll::Ready(ret)
+    }
+}
+
+impl<Wr: Debug, Part: Debug> Debug for Feed<'_, Wr, Part> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Feed")
+            .field("writer", &self.writer)
+            .field("buffered", &self.buffered)
+            .finish()
     }
 }

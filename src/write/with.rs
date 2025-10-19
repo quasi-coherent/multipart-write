@@ -5,16 +5,17 @@ use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-/// `MultipartWrite` for [`with`](super::MultipartWriteExt::with).
-#[must_use = "futures do nothing unless polled"]
-#[pin_project::pin_project]
-pub struct With<Wr, Part, U, Fut, F> {
-    #[pin]
-    writer: Wr,
-    f: F,
-    #[pin]
-    future: Option<Fut>,
-    _f: std::marker::PhantomData<fn(U) -> Part>,
+pin_project_lite::pin_project! {
+    /// `MultipartWrite` for [`with`](super::MultipartWriteExt::with).
+    #[must_use = "futures do nothing unless polled"]
+    pub struct With<Wr, Part, U, Fut, F> {
+        #[pin]
+        writer: Wr,
+        f: F,
+        #[pin]
+        future: Option<Fut>,
+        _f: std::marker::PhantomData<fn(U) -> Part>,
+    }
 }
 
 impl<Wr, Part, U, Fut, F> With<Wr, Part, U, Fut, F>
@@ -135,6 +136,7 @@ where
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("With")
             .field("writer", &self.writer)
+            .field("f", &"F")
             .field("future", &self.future)
             .finish()
     }

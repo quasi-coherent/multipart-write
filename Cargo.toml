@@ -19,7 +19,7 @@ tokio = ["dep:tokio"]
 
 [dependencies]
 futures-core = "0.3.31"
-pin-project = "1.1.10"
+pin-project-lite = "0.2.16"
 tokio = { version = "1.47.0", default-features = false, optional = true }
 
 [dev-dependencies]

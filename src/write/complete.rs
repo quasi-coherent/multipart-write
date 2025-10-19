@@ -3,11 +3,11 @@ use crate::{FusedMultipartWrite, MultipartWrite};
 
 use futures_core::future::{FusedFuture, Future};
 use futures_core::ready;
+use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 /// Future for [`complete`](super::MultipartWriteExt::complete).
-#[derive(Debug)]
 #[must_use = "futures do nothing unless polled"]
 pub struct Complete<'a, Wr: ?Sized, Part> {
     writer: &'a mut Wr,
@@ -40,5 +40,14 @@ impl<Wr: ?Sized + MultipartWrite<Part> + Unpin, Part> Future for Complete<'_, Wr
         let output = ready!(self.writer.poll_complete_unpin(cx));
         self.is_terminated = true;
         Poll::Ready(output)
+    }
+}
+
+impl<Wr: Debug, Part> Debug for Complete<'_, Wr, Part> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Complete")
+            .field("writer", &self.writer)
+            .field("is_terminated", &self.is_terminated)
+            .finish()
     }
 }

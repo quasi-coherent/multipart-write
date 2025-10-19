@@ -6,20 +6,20 @@ use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-/// Stream for  [`feed_multipart_write`].
-///
-/// [`feed_multipart_write`]: super::MultipartStreamExt::feed_multipart_write
-#[derive(Debug)]
-#[must_use = "futures do nothing unless polled"]
-#[pin_project::pin_project]
-pub struct FeedMultipartWrite<St: Stream, Wr, F> {
-    #[pin]
-    stream: St,
-    #[pin]
-    writer: WriteBuf<Wr, St::Item, F>,
-    state: State,
-    stream_terminated: bool,
-    is_terminated: bool,
+pin_project_lite::pin_project! {
+    /// Stream for  [`feed_multipart_write`].
+    ///
+    /// [`feed_multipart_write`]: super::MultipartStreamExt::feed_multipart_write
+    #[must_use = "futures do nothing unless polled"]
+    pub struct FeedMultipartWrite<St: Stream, Wr, F> {
+        #[pin]
+        stream: St,
+        #[pin]
+        writer: WriteBuf<Wr, St::Item, F>,
+        state: State,
+        stream_terminated: bool,
+        is_terminated: bool,
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -119,13 +119,31 @@ where
     }
 }
 
-#[pin_project::pin_project]
-struct WriteBuf<Wr, T, F> {
-    #[pin]
-    inner: Wr,
-    buffered: Option<T>,
-    f: F,
-    is_empty: bool,
+impl<St, Wr, F> Debug for FeedMultipartWrite<St, Wr, F>
+where
+    St: Stream + Debug,
+    St::Item: Debug,
+    Wr: Debug,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FeedMultipartWrite")
+            .field("stream", &self.stream)
+            .field("writer", &self.writer)
+            .field("state", &self.state)
+            .field("stream_terminated", &self.stream_terminated)
+            .field("is_terminated", &self.is_terminated)
+            .finish()
+    }
+}
+
+pin_project_lite::pin_project! {
+    struct WriteBuf<Wr, T, F> {
+        #[pin]
+        inner: Wr,
+        buffered: Option<T>,
+        f: F,
+        is_empty: bool,
+    }
 }
 
 impl<Wr, T, F> WriteBuf<Wr, T, F> {

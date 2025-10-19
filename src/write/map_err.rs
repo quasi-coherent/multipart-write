@@ -1,16 +1,17 @@
 use crate::{FusedMultipartWrite, MultipartWrite};
 
+use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-/// `MultipartWrite` for [`map_err`](super::MultipartWriteExt::map_err).
-#[derive(Debug)]
-#[must_use = "futures do nothing unless polled"]
-#[pin_project::pin_project]
-pub struct MapErr<Wr, F> {
-    #[pin]
-    writer: Wr,
-    f: F,
+pin_project_lite::pin_project! {
+    /// `MultipartWrite` for [`map_err`](super::MultipartWriteExt::map_err).
+    #[must_use = "futures do nothing unless polled"]
+    pub struct MapErr<Wr, F> {
+        #[pin]
+        writer: Wr,
+        f: F,
+    }
 }
 
 impl<Wr, F> MapErr<Wr, F> {
@@ -90,5 +91,14 @@ where
             .writer
             .poll_complete(cx)
             .map_err(self.as_mut().project().f)
+    }
+}
+
+impl<Wr: Debug, F> Debug for MapErr<Wr, F> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MapErr")
+            .field("writer", &self.writer)
+            .field("f", &"F")
+            .finish()
     }
 }

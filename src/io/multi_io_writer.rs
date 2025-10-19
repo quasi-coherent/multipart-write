@@ -4,14 +4,15 @@ use std::io::Write;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-/// `MultiIoWriter` implements [`MultipartWrite`] for a synchronous
-/// [`Write`](std::io::Write).
-///
-/// [`MultipartWrite`]: crate::MultipartWrite
-#[derive(Debug, Default)]
-#[pin_project::pin_project]
-pub struct MultiIoWriter<W: Write> {
-    inner: W,
+pin_project_lite::pin_project! {
+    /// `MultiIoWriter` implements [`MultipartWrite`] for a synchronous
+    /// [`Write`](std::io::Write).
+    ///
+    /// [`MultipartWrite`]: crate::MultipartWrite
+    #[derive(Debug, Default)]
+    pub struct MultiIoWriter<W: Write> {
+        inner: W,
+    }
 }
 
 impl<W: Write> MultiIoWriter<W> {

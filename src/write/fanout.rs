@@ -1,19 +1,21 @@
 use crate::{FusedMultipartWrite, MultipartWrite};
 
 use futures_core::ready;
+use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-/// `MultipartWrite` for [`fanout`](super::MultipartWriteExt::fanout).
-#[must_use = "futures do nothing unless polled"]
-#[pin_project::pin_project]
-pub struct Fanout<Wr1: MultipartWrite<Part>, Wr2: MultipartWrite<Part>, Part> {
-    #[pin]
-    wr1: Wr1,
-    #[pin]
-    wr2: Wr2,
-    wro1: Option<Wr1::Output>,
-    wro2: Option<Wr2::Output>,
+pin_project_lite::pin_project! {
+    /// `MultipartWrite` for [`fanout`](super::MultipartWriteExt::fanout).
+    #[must_use = "futures do nothing unless polled"]
+    pub struct Fanout<Wr1: MultipartWrite<Part>, Wr2: MultipartWrite<Part>, Part> {
+        #[pin]
+        wr1: Wr1,
+        #[pin]
+        wr2: Wr2,
+        wro1: Option<Wr1::Output>,
+        wro2: Option<Wr2::Output>,
+    }
 }
 
 impl<Wr1: MultipartWrite<Part>, Wr2: MultipartWrite<Part>, Part> Fanout<Wr1, Wr2, Part> {
@@ -86,5 +88,22 @@ where
         *this.wro1 = Some(output1);
         let output2 = ready!(this.wr2.poll_complete(cx))?;
         Poll::Ready(Ok((this.wro1.take().unwrap(), output2)))
+    }
+}
+
+impl<Wr1, Wr2, Part> Debug for Fanout<Wr1, Wr2, Part>
+where
+    Wr1: MultipartWrite<Part> + Debug,
+    Wr2: MultipartWrite<Part> + Debug,
+    Wr1::Output: Debug,
+    Wr2::Output: Debug,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Fanout")
+            .field("wr1", &self.wr1)
+            .field("wr2", &self.wr2)
+            .field("wro1", &self.wro1)
+            .field("wro2", &self.wro2)
+            .finish()
     }
 }

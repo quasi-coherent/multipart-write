@@ -5,14 +5,15 @@ use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-/// `MultipartWrite` for [`fold_ret`](super::MultipartWriteExt::fold_ret).
-#[must_use = "futures do nothing unless polled"]
-#[pin_project::pin_project]
-pub struct FoldRet<Wr, F, T> {
-    #[pin]
-    writer: Wr,
-    acc: Option<T>,
-    f: F,
+pin_project_lite::pin_project! {
+    /// `MultipartWrite` for [`fold_ret`](super::MultipartWriteExt::fold_ret).
+    #[must_use = "futures do nothing unless polled"]
+    pub struct FoldRet<Wr, F, T> {
+        #[pin]
+        writer: Wr,
+        acc: Option<T>,
+        f: F,
+    }
 }
 
 impl<Wr, F, T> FoldRet<Wr, F, T> {
@@ -99,6 +100,7 @@ where
         f.debug_struct("FoldRet")
             .field("writer", &self.writer)
             .field("acc", &self.acc)
+            .field("f", &"F")
             .finish()
     }
 }

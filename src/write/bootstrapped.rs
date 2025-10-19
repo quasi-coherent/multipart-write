@@ -5,19 +5,20 @@ use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-/// `MultipartWrite` for [`bootstrapped`].
-///
-/// [`bootstrapped`]: super::MultipartWriteExt::bootstrapped
-#[must_use = "futures do nothing unless polled"]
-#[pin_project::pin_project]
-pub struct Bootstrapped<Wr, S, F, Fut> {
-    #[pin]
-    writer: Option<Wr>,
-    f: F,
-    s: S,
-    #[pin]
-    future: Option<Fut>,
-    _f: std::marker::PhantomData<fn(S)>,
+pin_project_lite::pin_project! {
+    /// `MultipartWrite` for [`bootstrapped`].
+    ///
+    /// [`bootstrapped`]: super::MultipartWriteExt::bootstrapped
+    #[must_use = "futures do nothing unless polled"]
+    pub struct Bootstrapped<Wr, S, F, Fut> {
+        #[pin]
+        writer: Option<Wr>,
+        f: F,
+        s: S,
+        #[pin]
+        future: Option<Fut>,
+        _f: std::marker::PhantomData<fn(S)>,
+    }
 }
 
 impl<Wr, S, F, Fut> Bootstrapped<Wr, S, F, Fut> {
@@ -132,6 +133,7 @@ where
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Bootstrapped")
             .field("writer", &self.writer)
+            .field("f", &"F")
             .field("s", &self.s)
             .field("future", &self.future)
             .finish()

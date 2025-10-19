@@ -1,26 +1,27 @@
 use crate::{FusedMultipartWrite, MultipartWrite};
 
 use futures_core::ready;
+use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-/// `MultipartWrite` for [`then`](super::MultipartWriteExt::then).
-#[derive(Debug)]
-#[must_use = "futures do nothing unless polled"]
-#[pin_project::pin_project]
-pub struct Then<Wr, F, Fut> {
-    #[pin]
-    writer: Wr,
-    #[pin]
-    output: Option<Fut>,
-    f: F,
+pin_project_lite::pin_project! {
+    /// `MultipartWrite` for [`then`](super::MultipartWriteExt::then).
+    #[must_use = "futures do nothing unless polled"]
+    pub struct Then<Wr, F, Fut> {
+        #[pin]
+        writer: Wr,
+        #[pin]
+        future: Option<Fut>,
+        f: F,
+    }
 }
 
 impl<Wr, F, Fut> Then<Wr, F, Fut> {
     pub(super) fn new(writer: Wr, f: F) -> Self {
         Self {
             writer,
-            output: None,
+            future: None,
             f,
         }
     }
@@ -84,20 +85,34 @@ where
     ) -> Poll<Result<Self::Output, Self::Error>> {
         let mut this = self.project();
 
-        if this.output.is_none() {
+        if this.future.is_none() {
             let ret = ready!(this.writer.poll_complete(cx))?;
             let fut = (this.f)(ret);
-            this.output.set(Some(fut));
+            this.future.set(Some(fut));
         }
 
         let fut = this
-            .output
+            .future
             .as_mut()
             .as_pin_mut()
             .expect("polled Then after completion");
         let ret = ready!(fut.poll(cx));
-        this.output.set(None);
+        this.future.set(None);
 
         Poll::Ready(Ok(ret))
+    }
+}
+
+impl<Wr, F, Fut> Debug for Then<Wr, F, Fut>
+where
+    Wr: Debug,
+    Fut: Debug,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Then")
+            .field("writer", &self.writer)
+            .field("future", &self.future)
+            .field("f", &"F")
+            .finish()
     }
 }
