@@ -1,7 +1,7 @@
 //! # Description
 //!
-//! This crate contains the trait [`MultipartWrite`] and assorted implementations
-//! and convenience combinators.
+//! This crate contains the trait `MultipartWrite`, assorted implementations,
+//! and combinators.
 //!
 //! A `MultipartWrite` is a similar interface to [`Sink`], except that writing
 //! an item or completing the write both return values.
