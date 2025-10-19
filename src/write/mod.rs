@@ -8,6 +8,9 @@ use futures::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+mod bootstrapped;
+pub use bootstrapped::Bootstrapped;
+
 mod buffered;
 pub use buffered::Buffered;
 
@@ -38,9 +41,6 @@ pub use map_part::MapPart;
 mod map_ret;
 pub use map_ret::MapRet;
 
-mod on_complete;
-pub use on_complete::OnComplete;
-
 mod send;
 pub use send::Send;
 
@@ -55,6 +55,22 @@ impl<Wr: MultipartWrite<Part>, Part> MultipartWriteExt<Part> for Wr {}
 /// An extension trait for `MultipartWrite`rs providing a variety of convenient
 /// combinator functions.
 pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
+    /// Returns a writer wrapping this one and having the property that a call to
+    /// `poll_ready` will create `Self` if missing.
+    ///
+    /// The value `S` and closure `F` determine how this is done.  If a multipart
+    /// write is not left in a reusable state after `poll_complete`, this adapter
+    /// can be used to make a writer more than one-time-use where it otherwise
+    /// would not be.
+    fn bootstrapped<S, F, Fut>(self, s: S, f: F) -> Bootstrapped<Self, S, F, Fut>
+    where
+        F: FnMut(&mut S) -> Fut,
+        Fut: Future<Output = Result<Self, Self::Error>>,
+        Self: Sized,
+    {
+        Bootstrapped::new(self, s, f)
+    }
+
     /// Adds a fixed size buffer to the current writer.
     ///
     /// The resulting `MultipartWrite` will buffer up to `capacity` items when
@@ -157,19 +173,6 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         Self: Sized,
     {
         MapRet::new(self, f)
-    }
-
-    /// Returns a writer wrapping this one and having the property that it
-    /// creates a new `self` after each `poll_complete`.
-    ///
-    /// The value `S` and closure `F` determine how this is done.
-    fn on_complete<S, F, Fut>(self, s: S, f: F) -> OnComplete<Self, S, F, Fut>
-    where
-        F: FnMut(&mut S) -> Fut,
-        Fut: Future<Output = Result<Self, Self::Error>>,
-        Self: Sized,
-    {
-        OnComplete::new(self, s, f)
     }
 
     /// A convenience method for calling [`poll_ready`] on [`Unpin`] writer types.

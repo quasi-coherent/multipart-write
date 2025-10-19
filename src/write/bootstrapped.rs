@@ -33,7 +33,7 @@ impl<Wr, S, F, Fut> OnComplete<Wr, S, F, Fut> {
         }
     }
 
-    fn try_poll_ready<Part>(
+    fn poll_new_writer<Part>(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), Wr::Error>>
@@ -43,35 +43,22 @@ impl<Wr, S, F, Fut> OnComplete<Wr, S, F, Fut> {
         Fut: Future<Output = Result<Wr, Wr::Error>>,
     {
         let mut this = self.project();
-
-        if this.writer.is_some() {
-            let wr = this.writer.as_mut().as_pin_mut().unwrap();
-            return wr.poll_ready(cx);
-        }
-
-        if this.future.is_some() {
-            let fut = this.future.as_mut().as_pin_mut().unwrap();
-            match ready!(fut.poll(cx)) {
-                Ok(wr) => {
-                    this.writer.set(Some(wr));
-                    this.future.set(None);
-                    // Return `Poll::Pending`, not `Poll::Ready(Ok(()))` because
-                    // the writer is set now, but that doesn't mean it's ready.
-                    // On the next poll it will hit the top and call `poll_ready`
-                    // on the writer.
-                    Poll::Pending
-                }
-                Err(e) => {
-                    this.writer.set(None);
-                    this.future.set(None);
-                    *this.is_terminated = true;
-                    Poll::Ready(Err(e))
-                }
-            }
-        } else {
+        if this.future.is_none() {
             let fut = (this.f)(this.s);
             this.future.set(Some(fut));
-            Poll::Pending
+        }
+        let fut = this.future.as_mut().as_pin_mut().unwrap();
+        match ready!(fut.poll(cx)) {
+            Ok(wr) => {
+                this.future.set(None);
+                this.writer.set(Some(wr));
+                Poll::Ready(Ok(()))
+            }
+            Err(e) => {
+                this.future.set(None);
+                *this.is_terminated = true;
+                Poll::Ready(Err(e))
+            }
         }
     }
 }
@@ -97,17 +84,19 @@ where
     type Output = Wr::Output;
     type Error = Wr::Error;
 
-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.try_poll_ready(cx)
+    fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        if self.writer.is_none() {
+            ready!(self.as_mut().poll_new_writer(cx))?;
+        }
+        let mut this = self.project();
+        let wr = this.writer.as_mut().as_pin_mut().unwrap();
+        wr.poll_ready(cx)
     }
 
     fn start_send(self: Pin<&mut Self>, part: Part) -> Result<Self::Ret, Self::Error> {
         let mut this = self.project();
-        let wr = this
-            .writer
-            .as_mut()
-            .as_pin_mut()
-            .expect("called start_send without poll_ready");
+        assert!(this.writer.is_some());
+        let wr = this.writer.as_mut().as_pin_mut().unwrap();
         wr.start_send(part)
     }
 
@@ -133,15 +122,6 @@ where
             .expect("polled OnComplete after completion");
         let output = ready!(wr.poll_complete(cx));
         this.writer.set(None);
-
-        if output.is_err() {
-            this.future.set(None);
-            *this.is_terminated = true;
-        } else {
-            let fut = (this.f)(this.s);
-            this.future.set(Some(fut));
-        }
-
         Poll::Ready(output)
     }
 }
