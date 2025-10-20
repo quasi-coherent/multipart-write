@@ -119,6 +119,8 @@ where
             .as_pin_mut()
             .expect("polled Bootstrapped after completion");
         let output = ready!(wr.poll_complete(cx));
+        let fut = (this.f)(this.s);
+        this.future.set(Some(fut));
         this.writer.set(None);
         Poll::Ready(output)
     }
