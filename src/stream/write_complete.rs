@@ -14,7 +14,7 @@ pin_project_lite::pin_project! {
         #[pin]
         writer: Wr,
         #[pin]
-        stream: St,
+        stream: Option<St>,
         buffered: Option<St::Item>,
         is_terminated: bool,
     }
@@ -24,7 +24,7 @@ impl<St: Stream, Wr> WriteComplete<St, Wr> {
     pub(super) fn new(stream: St, writer: Wr) -> Self {
         Self {
             writer,
-            stream,
+            stream: Some(stream),
             buffered: None,
             is_terminated: false,
         }
@@ -60,16 +60,34 @@ where
                     .start_send(this.buffered.take().unwrap())?;
             }
 
-            match this.stream.as_mut().poll_next(cx) {
-                Poll::Ready(Some(it)) => *this.buffered = Some(it),
-                Poll::Ready(None) => {
-                    let output = ready!(this.writer.poll_complete(cx));
-                    *this.is_terminated = true;
-                    return Poll::Ready(output);
-                }
+            let Some(mut st) = this.stream.as_mut().as_pin_mut() else {
+                let output = ready!(this.writer.as_mut().poll_complete(cx));
+                *this.is_terminated = true;
+                return Poll::Ready(output);
+            };
+
+            match st.as_mut().poll_next(cx) {
                 Poll::Pending => {
                     ready!(this.writer.poll_flush(cx))?;
                     return Poll::Pending;
+                }
+                Poll::Ready(Some(it)) => *this.buffered = Some(it),
+                Poll::Ready(None) => {
+                    // Close the stream and start the process to complete
+                    // the write/future.
+                    this.stream.set(None);
+                    match this.writer.as_mut().poll_flush(cx) {
+                        Poll::Pending => return Poll::Pending,
+                        Poll::Ready(Ok(())) => {
+                            let output = ready!(this.writer.as_mut().poll_complete(cx));
+                            *this.is_terminated = true;
+                            return Poll::Ready(output);
+                        }
+                        Poll::Ready(Err(e)) => {
+                            *this.is_terminated = true;
+                            return Poll::Ready(Err(e));
+                        }
+                    }
                 }
             }
         }
