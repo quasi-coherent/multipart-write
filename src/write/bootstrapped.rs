@@ -42,6 +42,9 @@ impl<Wr, S, F, Fut> Bootstrapped<Wr, S, F, Fut> {
         Fut: Future<Output = Result<Option<Wr>, Wr::Error>>,
     {
         let mut this = self.project();
+        // This should not be possible because this is only called from a
+        // `self.writer.is_none()` context and they can't both be `None` unless
+        // something bad is happening.
         if this.future.is_none() {
             let fut = (this.f)(this.s);
             this.future.set(Some(fut));
@@ -50,6 +53,10 @@ impl<Wr, S, F, Fut> Bootstrapped<Wr, S, F, Fut> {
         match ready!(fut.poll(cx)) {
             Ok(wr) => {
                 this.future.set(None);
+                // If `wr` is `None` this should be the last time this future is
+                // polled because now it `is_terminated` according to its fused
+                // implementation, which all `Future` and `Stream` impls defer to
+                // if appropriate for `FusedFuture/Stream`.
                 this.writer.set(wr);
                 Poll::Ready(Ok(()))
             }
@@ -93,6 +100,7 @@ where
 
     fn start_send(self: Pin<&mut Self>, part: Part) -> Result<Self::Ret, Self::Error> {
         let mut this = self.project();
+        // This has to be non-`None` if following the rules.
         assert!(this.writer.is_some());
         let wr = this.writer.as_mut().as_pin_mut().unwrap();
         wr.start_send(part)
@@ -120,6 +128,12 @@ where
             .expect("polled Bootstrapped after completion");
         let output = ready!(wr.poll_complete(cx));
         let fut = (this.f)(this.s);
+        // Have to have one of these two be non-`None` or else this future
+        // becomes fused, i.e. `FusedFuture`s deferring to this type will return
+        // that it's terminated.
+        //
+        // This future may not be able to return a non-`None` value itself, which
+        // is fine--it'll become terminated at that point.
         this.future.set(Some(fut));
         this.writer.set(None);
         Poll::Ready(output)

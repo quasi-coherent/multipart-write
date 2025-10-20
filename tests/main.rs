@@ -92,7 +92,7 @@ async fn writer_map() {
     for n in 1..=5_usize {
         writer.send_part(n).await.unwrap();
     }
-    writer.complete().await.unwrap();
+    writer.flush().await.unwrap();
     let out = writer.complete().await.unwrap();
     assert_eq!(out, 15);
 }

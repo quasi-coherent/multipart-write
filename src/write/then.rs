@@ -53,7 +53,7 @@ where
     Fut: Future,
 {
     fn is_terminated(&self) -> bool {
-        self.writer.is_terminated()
+        self.writer.is_terminated() && self.future.is_none()
     }
 }
 
