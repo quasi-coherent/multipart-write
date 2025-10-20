@@ -1,5 +1,6 @@
 use futures_util::future::{Ready, ready};
 use futures_util::stream::{StreamExt as _, iter};
+use multipart_write::FusedMultipartWrite;
 use multipart_write::prelude::*;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -8,6 +9,7 @@ use std::task::{Context, Poll};
 struct TestWriter {
     inner: Vec<usize>,
     multiplier: usize,
+    capacity: usize,
 }
 
 impl Default for TestWriter {
@@ -15,6 +17,7 @@ impl Default for TestWriter {
         Self {
             inner: Vec::new(),
             multiplier: 1,
+            capacity: usize::MAX,
         }
     }
 }
@@ -23,8 +26,12 @@ impl TestWriter {
     fn new(multiplier: usize) -> Self {
         Self {
             multiplier,
-            inner: Vec::new(),
+            ..Default::default()
         }
+    }
+
+    fn capacity(self, capacity: usize) -> Self {
+        Self { capacity, ..self }
     }
 }
 
@@ -52,6 +59,12 @@ impl MultipartWrite<usize> for TestWriter {
         _cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>> {
         Poll::Ready(Ok(std::mem::take(&mut self.inner)))
+    }
+}
+
+impl FusedMultipartWrite<usize> for TestWriter {
+    fn is_terminated(&self) -> bool {
+        self.inner.len() >= self.capacity
     }
 }
 
@@ -98,7 +111,7 @@ async fn writer_with() {
 
 #[tokio::test]
 async fn feed_multipart_write_stream() {
-    let writer = TestWriter::default();
+    let writer = TestWriter::default().capacity(100);
     let mut outputs = iter(1..=10)
         .feed_multipart_write(writer, |ret| ret % 5 == 0)
         .collect::<Vec<_>>()
@@ -134,10 +147,10 @@ impl Default for TestState {
 }
 
 impl TestState {
-    fn bootstrap(&mut self) -> Ready<Result<TestWriter, String>> {
+    fn bootstrap(&mut self) -> Ready<Result<Option<TestWriter>, String>> {
         self.0 += 1;
         let writer = TestWriter::new(self.0);
-        ready(Ok(writer))
+        ready(Ok(Some(writer)))
     }
 }
 

@@ -1,5 +1,5 @@
 //! `MultipartWrite`rs compatible with [`Stream`].
-use crate::MultipartWrite;
+use crate::{FusedMultipartWrite, MultipartWrite};
 
 use futures_core::stream::Stream;
 
@@ -18,7 +18,7 @@ pub trait MultipartStreamExt: Stream {
     /// indicates the writer should be completed.
     fn feed_multipart_write<Wr, F>(self, writer: Wr, f: F) -> FeedMultipartWrite<Self, Wr, F>
     where
-        Wr: MultipartWrite<Self::Item>,
+        Wr: FusedMultipartWrite<Self::Item>,
         F: FnMut(Wr::Ret) -> bool,
         Self: Sized,
     {

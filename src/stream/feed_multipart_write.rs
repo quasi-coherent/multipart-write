@@ -44,7 +44,7 @@ impl<St: Stream, Wr, F> FeedMultipartWrite<St, Wr, F> {
 
 impl<St, Wr, F> FusedStream for FeedMultipartWrite<St, Wr, F>
 where
-    St: FusedStream,
+    St: Stream,
     Wr: FusedMultipartWrite<St::Item>,
     F: FnMut(Wr::Ret) -> bool,
 {
@@ -56,7 +56,7 @@ where
 impl<St, Wr, F> Stream for FeedMultipartWrite<St, Wr, F>
 where
     St: Stream,
-    Wr: MultipartWrite<St::Item>,
+    Wr: FusedMultipartWrite<St::Item>,
     F: FnMut(Wr::Ret) -> bool,
 {
     type Item = Result<Wr::Output, Wr::Error>;
@@ -65,6 +65,13 @@ where
         let mut this = self.project();
 
         loop {
+            // We can't make any more progress if this writer is fused so stop
+            // producing the stream.
+            if this.writer.inner.is_terminated() {
+                *this.is_terminated = true;
+                return Poll::Ready(None);
+            }
+
             let next_state = match *this.state {
                 // Try to make the writer write its buffered item.
                 // Possibilities are:

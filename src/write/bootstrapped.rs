@@ -39,7 +39,7 @@ impl<Wr, S, F, Fut> Bootstrapped<Wr, S, F, Fut> {
     where
         Wr: MultipartWrite<Part>,
         F: FnMut(&mut S) -> Fut,
-        Fut: Future<Output = Result<Wr, Wr::Error>>,
+        Fut: Future<Output = Result<Option<Wr>, Wr::Error>>,
     {
         let mut this = self.project();
         if this.future.is_none() {
@@ -50,7 +50,7 @@ impl<Wr, S, F, Fut> Bootstrapped<Wr, S, F, Fut> {
         match ready!(fut.poll(cx)) {
             Ok(wr) => {
                 this.future.set(None);
-                this.writer.set(Some(wr));
+                this.writer.set(wr);
                 Poll::Ready(Ok(()))
             }
             Err(e) => {
@@ -65,7 +65,7 @@ impl<Wr, S, F, Fut, Part> FusedMultipartWrite<Part> for Bootstrapped<Wr, S, F, F
 where
     Wr: FusedMultipartWrite<Part>,
     F: FnMut(&mut S) -> Fut,
-    Fut: Future<Output = Result<Wr, Wr::Error>>,
+    Fut: Future<Output = Result<Option<Wr>, Wr::Error>>,
 {
     fn is_terminated(&self) -> bool {
         self.writer.is_none() && self.future.is_none()
@@ -76,7 +76,7 @@ impl<Wr, S, F, Fut, Part> MultipartWrite<Part> for Bootstrapped<Wr, S, F, Fut>
 where
     Wr: MultipartWrite<Part>,
     F: FnMut(&mut S) -> Fut,
-    Fut: Future<Output = Result<Wr, Wr::Error>>,
+    Fut: Future<Output = Result<Option<Wr>, Wr::Error>>,
 {
     type Ret = Wr::Ret;
     type Output = Wr::Output;

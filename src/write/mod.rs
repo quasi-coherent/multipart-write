@@ -2,11 +2,13 @@
 //!
 //! This module contains the trait [`MultipartWriteExt`], which provides adapters
 //! for chaining and composing [`MultipartWrite`]rs.
-use crate::{BoxMultipartWrite, LocalBoxMultipartWrite, MultipartWrite};
+use crate::{BoxMultipartWrite, LocalBoxMultipartWrite};
 
 use futures_core::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+
+pub use crate::MultipartWrite;
 
 mod bootstrapped;
 pub use bootstrapped::Bootstrapped;
@@ -65,7 +67,7 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     fn bootstrapped<S, F, Fut>(self, s: S, f: F) -> Bootstrapped<Self, S, F, Fut>
     where
         F: FnMut(&mut S) -> Fut,
-        Fut: Future<Output = Result<Self, Self::Error>>,
+        Fut: Future<Output = Result<Option<Self>, Self::Error>>,
         Self: Sized,
     {
         Bootstrapped::new(self, s, f)
