@@ -15,7 +15,7 @@
 //! enables while being able to act as a stream itself and produce items that
 //! can be forwarded for more processing.
 //!
-//! [example]: https://github.com/quasi-coherent/multipart-write/blob/2cfd8bab323132ba3c0caa9f31b33b45d9faf8c1/examples/author.rs
+//! [example]: https://github.com/quasi-coherent/multipart-write/blob/master/examples/author.rs
 //! [`Sink`]: https://docs.rs/crate/futures-sink/0.3.31
 #![cfg_attr(docsrs, feature(doc_cfg))]
 use std::ops::DerefMut;

@@ -37,7 +37,8 @@ impl Example {
     /// story in `Book` form from a stream (...of consciousness?).
     ///
     /// The book is returned in a future.  The future represents the computation
-    /// of writing items from the stream, flushing when necessary, then
+    /// of writing items from the stream, flushing when necessary, then finishing
+    /// the book when the stream is exhausted.
     fn short_story(&self) -> impl Future<Output = Result<Book, String>> {
         let author = Author::new(10);
 
