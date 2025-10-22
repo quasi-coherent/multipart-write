@@ -53,11 +53,19 @@ where
 
         loop {
             if this.buffered.is_some() {
-                ready!(this.writer.as_mut().poll_ready(cx))?;
-                let _ = this
-                    .writer
-                    .as_mut()
-                    .start_send(this.buffered.take().unwrap())?;
+                let Poll::Ready(res) = this.writer.as_mut().poll_ready(cx) else {
+                    ready!(this.writer.poll_flush(cx))?;
+                    return Poll::Pending;
+                };
+                match res {
+                    Err(e) => return Poll::Ready(Err(e)),
+                    Ok(()) => {
+                        let _ = this
+                            .writer
+                            .as_mut()
+                            .start_send(this.buffered.take().unwrap())?;
+                    }
+                }
             }
 
             let Some(mut st) = this.stream.as_mut().as_pin_mut() else {

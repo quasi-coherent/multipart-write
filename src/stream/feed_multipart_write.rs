@@ -180,7 +180,6 @@ impl<Wr, T, F> WriteBuf<Wr, T, F> {
         F: FnMut(Wr::Ret) -> bool,
     {
         let mut this = self.project();
-        ready!(this.inner.as_mut().poll_flush(cx))?;
         let output = ready!(this.inner.as_mut().poll_complete(cx))?;
         *this.is_empty = true;
         Poll::Ready(Ok(output))
@@ -196,14 +195,24 @@ impl<Wr, T, F> WriteBuf<Wr, T, F> {
     {
         let mut this = self.project();
 
-        if this.buffered.is_some() {
-            ready!(this.inner.as_mut().poll_ready(cx))?;
-            let item = this.buffered.take().unwrap();
-            let ret = this.inner.as_mut().start_send(item).map(this.f)?;
-            *this.is_empty = false;
-            Poll::Ready(Ok(Some(ret)))
-        } else {
+        if this.buffered.is_none() {
             Poll::Ready(Ok(None))
+        } else {
+            // Flush the writer if unavailable.
+            let Poll::Ready(res) = this.inner.as_mut().poll_ready(cx) else {
+                ready!(this.inner.as_mut().poll_flush(cx))?;
+                return Poll::Pending;
+            };
+
+            match res {
+                Err(e) => Poll::Ready(Err(e)),
+                Ok(()) => {
+                    let item = this.buffered.take().unwrap();
+                    let ret = this.inner.as_mut().start_send(item).map(this.f)?;
+                    *this.is_empty = false;
+                    Poll::Ready(Ok(Some(ret)))
+                }
+            }
         }
     }
 }
