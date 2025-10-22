@@ -12,9 +12,20 @@
 
 ## Description
 
-This crate contains the trait `MultipartWrite`, assorted implementations, and combinators.
+This crate contains the trait `MultipartWrite`, assorted implementations,
+and combinators.
 
-A `MultipartWrite` is a similar interface to [`Sink`], except that writing an item or completing the
-write both return values.
+A `MultipartWrite` is a similar interface to [`Sink`], except that writing
+an item or completing the write both return values.
 
+See a conceptual example of a `MultipartWrite` [here][example].
+
+# Motivation
+
+`Sink` is a useful API, but it is just that--a sink.  The end of a stream.
+It's useful to have the backpressure mechanism that `poll_ready`/`start_send`
+enables while being able to act as a stream itself and produce items that
+can be forwarded for more processing.
+
+[example]: https://github.com/quasi-coherent/multipart-write/blob/2cfd8bab323132ba3c0caa9f31b33b45d9faf8c1/examples/author.rs
 [`Sink`]: https://docs.rs/crate/futures-sink/0.3.31

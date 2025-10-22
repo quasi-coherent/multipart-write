@@ -1,3 +1,9 @@
+//! This example centers on an [`Author`].
+//!
+//! The author writes books.  The books are created by writing pages until some
+//! conditions are met.  This is modeled as a `MultipartWrite` by having the part
+//! be a line on a page, the flushing behavior be finishing a page and starting a
+//! new page, and the completion of a writer be finishing the book.
 use futures_util::{Future, Stream, StreamExt, future, stream};
 use multipart_write::prelude::*;
 use std::collections::HashMap;
@@ -25,8 +31,7 @@ async fn main() -> Result<(), String> {
     Ok(())
 }
 
-pub struct Example;
-
+struct Example;
 impl Example {
     /// A short story has 10 pages, each having 10 lines.  We'll make a short
     /// story in `Book` form from a stream (...of consciousness?).
@@ -77,99 +82,13 @@ impl Example {
 
 /// A story to tell in a book.
 #[derive(Debug, Clone, Copy)]
-pub struct Narrative;
+struct Narrative;
 
 impl Iterator for Narrative {
     type Item = String;
 
     fn next(&mut self) -> Option<Self::Item> {
         Some("All work and no play make Jack a dull boy.".into())
-    }
-}
-
-/// A line is some text.
-#[derive(Debug, Clone)]
-pub struct Line(String);
-
-impl Deref for Line {
-    type Target = str;
-    fn deref(&self) -> &Self::Target {
-        &*self.0
-    }
-}
-
-/// A `Page` is a collection of `Line`s.
-#[derive(Debug, Clone, Default)]
-pub struct Page(Vec<Line>);
-
-impl Page {
-    /// A new page with some line limit.
-    fn new(limit: usize) -> Self {
-        Self(Vec::with_capacity(limit))
-    }
-
-    /// Current line count.
-    fn line_count(&self) -> usize {
-        self.0.len()
-    }
-
-    /// Write a line, returning the number of lines the page currently has.
-    fn write_line(&mut self, line: Line) -> Result<usize, String> {
-        self.0.push(line);
-        Ok(self.0.len())
-    }
-}
-
-/// Ordering of the `Page`s in a book.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct PageNumber(pub u64);
-
-impl Default for PageNumber {
-    fn default() -> Self {
-        Self(1)
-    }
-}
-
-impl PageNumber {
-    fn new_page(&mut self) {
-        self.0 += 1;
-    }
-}
-
-impl Display for PageNumber {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-/// A `Book` has an edition and `Page`s.
-#[derive(Debug, Clone)]
-struct Book(usize, HashMap<PageNumber, Page>);
-
-impl Default for Book {
-    fn default() -> Self {
-        Self(1, HashMap::default())
-    }
-}
-
-impl Book {
-    fn edition(&self) -> String {
-        format!("Ed. {}", self.0)
-    }
-
-    fn start_next(&self) -> Book {
-        Book(self.0 + 1, HashMap::default())
-    }
-
-    /// Write a page to the book.
-    ///
-    /// This returns an error if the book already has a page `page_number`.
-    fn write_page(&mut self, page_number: PageNumber, page: Page) -> Result<(), String> {
-        if self.1.contains_key(&page_number) {
-            return Err(format!("page {page_number} already exists"));
-        }
-        self.1.insert(page_number, page);
-        Ok(())
     }
 }
 
@@ -276,6 +195,92 @@ impl MultipartWrite<Line> for Author {
 impl FusedMultipartWrite<Line> for Author {
     fn is_terminated(&self) -> bool {
         false
+    }
+}
+
+/// A line is some text.
+#[derive(Debug, Clone)]
+struct Line(String);
+
+impl Deref for Line {
+    type Target = str;
+    fn deref(&self) -> &Self::Target {
+        &*self.0
+    }
+}
+
+/// A `Page` is a collection of `Line`s.
+#[derive(Debug, Clone, Default)]
+struct Page(Vec<Line>);
+
+impl Page {
+    /// A new page with some line limit.
+    fn new(limit: usize) -> Self {
+        Self(Vec::with_capacity(limit))
+    }
+
+    /// Current line count.
+    fn line_count(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Write a line, returning the number of lines the page currently has.
+    fn write_line(&mut self, line: Line) -> Result<usize, String> {
+        self.0.push(line);
+        Ok(self.0.len())
+    }
+}
+
+/// Ordering of the `Page`s in a book.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+struct PageNumber(u64);
+
+impl Default for PageNumber {
+    fn default() -> Self {
+        Self(1)
+    }
+}
+
+impl PageNumber {
+    fn new_page(&mut self) {
+        self.0 += 1;
+    }
+}
+
+impl Display for PageNumber {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// A `Book` has an edition and `Page`s.
+#[derive(Debug, Clone)]
+struct Book(usize, HashMap<PageNumber, Page>);
+
+impl Default for Book {
+    fn default() -> Self {
+        Self(1, HashMap::default())
+    }
+}
+
+impl Book {
+    fn edition(&self) -> String {
+        format!("Ed. {}", self.0)
+    }
+
+    fn start_next(&self) -> Book {
+        Book(self.0 + 1, HashMap::default())
+    }
+
+    /// Write a page to the book.
+    ///
+    /// This returns an error if the book already has a page `page_number`.
+    fn write_page(&mut self, page_number: PageNumber, page: Page) -> Result<(), String> {
+        if self.1.contains_key(&page_number) {
+            return Err(format!("page {page_number} already exists"));
+        }
+        self.1.insert(page_number, page);
+        Ok(())
     }
 }
 
