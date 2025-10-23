@@ -181,7 +181,7 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// the input part type.
     fn map_part<U, F>(self, f: F) -> MapPart<Self, F>
     where
-        F: FnMut(U) -> Result<Part, Self::Error>,
+        F: FnMut(U) -> Part,
         Self: MultipartWrite<Part> + Sized,
     {
         MapPart::new(self, f)

@@ -6,17 +6,24 @@
 //! A `MultipartWrite` is a similar interface to [`Sink`], except that writing
 //! an item or completing the write both return values.
 //!
-//! See a conceptual example of a `MultipartWrite` [here][example].
+//! [Here][example] is a conceptual example of a `MultipartWrite`.
 //!
 //! # Motivation
 //!
 //! `Sink` is a useful API, but it is just that--a sink.  The end of a stream.
 //! It's useful to have the backpressure mechanism that `poll_ready`/`start_send`
-//! enables while being able to act as a stream itself and produce items that
-//! can be forwarded for more processing.
+//! enables, and it's nice to have the flexibility that the shape of it provides
+//! in what kinds of things you can forward to it.
 //!
-//! [example]: https://github.com/quasi-coherent/multipart-write/blob/master/examples/author.rs
+//! The idea for `MultipartWrite` is to:
+//! 1. Have the same desirable properies as `Sink`.
+//! 2. Be able to be inserted at more locations in a stream computation.
+//! 3. Be useful in more cases by having a value returned when starting a write.
+//! 4. Be able to transform a stream into another stream, which is really just
+//! a more specific phrasing of 3.
+//!
 //! [`Sink`]: https://docs.rs/crate/futures-sink/0.3.31
+//! [example]: https://github.com/quasi-coherent/multipart-write/blob/master/examples/author.rs
 #![cfg_attr(docsrs, feature(doc_cfg))]
 use std::ops::DerefMut;
 use std::pin::Pin;

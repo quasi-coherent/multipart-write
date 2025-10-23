@@ -59,7 +59,7 @@ impl Eg {
     ///
     /// The combinator `with` is similar except the function returns a future.
     fn map_reversed() -> impl Future<Output = Result<Book, String>> {
-        let rohtua = Author::new(10).map_part(|line: String| Ok(line.chars().rev().collect()));
+        let rohtua = Author::new(10).map_part(|line: String| line.chars().rev().collect());
         stream::iter(Narrative).take(10 * 10).write_complete(rohtua)
     }
 

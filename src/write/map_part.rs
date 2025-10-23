@@ -42,7 +42,7 @@ impl<Wr, F> MapPart<Wr, F> {
 impl<U, Wr, F, Part> FusedMultipartWrite<U> for MapPart<Wr, F>
 where
     Wr: FusedMultipartWrite<Part>,
-    F: FnMut(U) -> Result<Part, Wr::Error>,
+    F: FnMut(U) -> Part,
 {
     fn is_terminated(&self) -> bool {
         self.writer.is_terminated()
@@ -52,7 +52,7 @@ where
 impl<U, Wr, F, Part> MultipartWrite<U> for MapPart<Wr, F>
 where
     Wr: MultipartWrite<Part>,
-    F: FnMut(U) -> Result<Part, Wr::Error>,
+    F: FnMut(U) -> Part,
 {
     type Ret = Wr::Ret;
     type Output = Wr::Output;
@@ -64,7 +64,7 @@ where
 
     fn start_send(self: Pin<&mut Self>, it: U) -> Result<Self::Ret, Self::Error> {
         let this = self.project();
-        let part = (this.f)(it)?;
+        let part = (this.f)(it);
         this.writer.start_send(part)
     }
 
