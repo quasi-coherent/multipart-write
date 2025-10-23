@@ -21,10 +21,23 @@ async fn main() -> Result<(), String> {
     let map_reversed = Eg::map_reversed().await?;
     println!("{map_reversed}");
 
-    let books: Vec<Book> = Eg::book_stream().collect::<Vec<_>>().await;
+    let books: Vec<Book> = Eg::book_stream().collect().await;
     books.into_iter().for_each(|book| println!("{book}"));
 
+    let french_books: Vec<Book> = Eg::french_book_stream().collect().await;
+    french_books.into_iter().for_each(|book| println!("{book}"));
+
     Ok(())
+}
+
+/// The story to write.
+#[derive(Debug, Clone, Copy)]
+struct Narrative;
+impl Iterator for Narrative {
+    type Item = String;
+    fn next(&mut self) -> Option<Self::Item> {
+        Some("All work and no play make Jack a dull boy.".into())
+    }
 }
 
 struct Eg;
@@ -70,15 +83,24 @@ impl Eg {
             .feed_multipart_write(author, |state| state.page_number() >= 100)
             .filter_map(|out| future::ready(out.ok()))
     }
-}
 
-#[derive(Debug, Clone, Copy)]
-struct Narrative;
-impl Iterator for Narrative {
-    type Item = String;
+    /// In this example, the `MultipartWrite` combinator `then` is used to
+    /// transform the `Author` writer into one that produces the same book but
+    /// in French.
+    ///
+    /// `then` chains an asynchronous computation on the end of another writer,
+    /// which creates a new writer with the same input, but the output type is
+    /// whatever the output type of the future is.
+    ///
+    /// In this case the computation is a (mock of a) call to a Google Translate
+    /// API and it returns the same type of output as the inner writer.
+    fn french_book_stream() -> impl Stream<Item = Book> {
+        let author = Author::new(10).then(Translator::get_translation);
 
-    fn next(&mut self) -> Option<Self::Item> {
-        Some("All work and no play make Jack a dull boy.".into())
+        stream::iter(Narrative)
+            .take(3125)
+            .feed_multipart_write(author, |state| state.page_number() >= 100)
+            .filter_map(|out| future::ready(out.ok()))
     }
 }
 
@@ -147,6 +169,9 @@ impl MultipartWrite<String> for Author {
     type Error = String;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        // This method needs to return `Poll::Pending` until there are less than
+        // `line_limit` lines.  Flushing would return `Poll::Pending` until there
+        // are 0 lines, so this is an appropriate way to implement `poll_ready`.
         if self.page.line_count() >= self.line_limit {
             return self.poll_flush(cx);
         }
@@ -154,6 +179,7 @@ impl MultipartWrite<String> for Author {
     }
 
     fn start_send(mut self: Pin<&mut Self>, text: String) -> Result<Self::Ret, Self::Error> {
+        // Start the process of writing a line.
         let lines_written = self.page.write_line(text)?;
         Ok(self.book_state(lines_written))
     }
@@ -169,6 +195,10 @@ impl MultipartWrite<String> for Author {
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>> {
+        // The contract of `poll_complete` is fulfilled in this writer's case if
+        // all pages are written.  So the pending page `self.page` needs to be
+        // finished no matter how many lines it has, just as long as it has at
+        // least one.
         if self.page.line_count() > 0 {
             ready!(self.as_mut().poll_flush(cx))?;
         }
@@ -179,10 +209,44 @@ impl MultipartWrite<String> for Author {
     }
 }
 
-// We need this to be able to use it in a stream.
+// Required implementation to be able to use in a stream.
+//
+// In this writer's case it's not really important because it can go on
+// indefinitely, does not error, and completing a write leaves the writer in a
+// pure state.  But if any one of these were not the case, the issue of how to
+// end a stream needs the concept of a "fused" multipart writer.
 impl FusedMultipartWrite<String> for Author {
     fn is_terminated(&self) -> bool {
         false
+    }
+}
+
+/// This becomes a writer when combined with an `Author`, or any writer whose
+/// output type is `Book`.  This writer chains an asynchronous computation on the
+/// output of the inner writer.
+///
+/// In the example, this computation could be using a `reqwest::Client` to
+/// query the url at `translate.googleapis.com/translate_a` with the text of the
+/// book and a language code to translate to.
+///
+/// The result would be a new writer with the same output type `Book`, but where
+/// the book is in a different language.
+#[derive(Debug, Clone, Copy, Default)]
+struct Translator;
+
+impl Translator {
+    /// Mocking a call to  API to translate or something.
+    fn get_translation(mut book: Book) -> impl Future<Output = Book> {
+        book.iter_mut().for_each(|(_, pg)| Self::translate_page(pg));
+        future::ready(book)
+    }
+
+    fn translate_page(pg: &mut Page) {
+        let new_lines = std::iter::repeat_n(LINE_FR, pg.line_count())
+            .enumerate()
+            .map(|(n, txt)| Line(n, txt.into()))
+            .collect();
+        pg.0 = new_lines;
     }
 }
 
@@ -238,7 +302,7 @@ impl PageNumber {
     }
 }
 
-/// A `Book` has an edition and `Page`s.
+/// A `Book` has a language, edition, and `Page`s.
 #[derive(Debug, Clone)]
 struct Book(usize, BTreeMap<PageNumber, Page>);
 
@@ -255,6 +319,10 @@ impl Book {
 
     fn start_next(&self) -> Book {
         Book(self.0 + 1, BTreeMap::default())
+    }
+
+    fn iter_mut(&mut self) -> impl Iterator<Item = (&PageNumber, &mut Page)> {
+        self.1.iter_mut()
     }
 
     /// Write a page to the book.
@@ -286,3 +354,5 @@ impl Display for Book {
         })
     }
 }
+
+const LINE_FR: &str = "Tout le travail et aucun jeu font de Jack un garçon ennuyeux.";
