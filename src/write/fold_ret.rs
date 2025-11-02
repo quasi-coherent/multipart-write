@@ -85,9 +85,9 @@ where
         cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>> {
         let mut this = self.project();
-        let output = ready!(this.writer.as_mut().poll_complete(cx))?;
+        let out = ready!(this.writer.as_mut().poll_complete(cx))?;
         let acc = this.acc.take().expect("polled FoldRet after completion");
-        Poll::Ready(Ok((acc, output)))
+        Poll::Ready(Ok((acc, out)))
     }
 }
 
@@ -100,7 +100,7 @@ where
         f.debug_struct("FoldRet")
             .field("writer", &self.writer)
             .field("acc", &self.acc)
-            .field("f", &"F")
+            .field("f", &"impl FnMut(T, &Wr::Ret) -> T")
             .finish()
     }
 }

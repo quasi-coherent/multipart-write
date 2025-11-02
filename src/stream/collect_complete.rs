@@ -72,14 +72,14 @@ where
                     .start_send(this.buffered.take().unwrap())?;
             }
 
-            let Some(mut st) = this.stream.as_mut().as_pin_mut() else {
+            let Some(st) = this.stream.as_mut().as_pin_mut() else {
                 ready!(this.writer.as_mut().poll_flush(cx))?;
                 let output = ready!(this.writer.as_mut().poll_complete(cx));
                 *this.is_terminated = true;
                 return Poll::Ready(output);
             };
 
-            match ready!(st.as_mut().poll_next(cx)) {
+            match ready!(st.poll_next(cx)) {
                 Some(it) => *this.buffered = Some(it),
                 None => this.stream.set(None),
             }

@@ -84,10 +84,10 @@ where
         cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>> {
         let this = self.project();
-        let output1 = ready!(this.wr1.poll_complete(cx))?;
-        *this.wro1 = Some(output1);
-        let output2 = ready!(this.wr2.poll_complete(cx))?;
-        Poll::Ready(Ok((this.wro1.take().unwrap(), output2)))
+        let out1 = ready!(this.wr1.poll_complete(cx))?;
+        *this.wro1 = Some(out1);
+        let out2 = ready!(this.wr2.poll_complete(cx))?;
+        Poll::Ready(Ok((this.wro1.take().unwrap(), out2)))
     }
 }
 

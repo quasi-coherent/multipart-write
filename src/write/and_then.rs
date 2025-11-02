@@ -98,9 +98,9 @@ where
             .as_mut()
             .as_pin_mut()
             .expect("polled AndThen after completion");
-        let res = ready!(fut.poll(cx));
+        let out = ready!(fut.poll(cx));
         this.future.set(None);
-        Poll::Ready(res)
+        Poll::Ready(out)
     }
 }
 
@@ -113,7 +113,7 @@ where
         f.debug_struct("AndThen")
             .field("writer", &self.writer)
             .field("future", &self.future)
-            .field("f", &"F")
+            .field("f", &"impl FnMut(Wr::Output) -> Fut")
             .finish()
     }
 }

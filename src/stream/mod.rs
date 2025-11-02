@@ -1,6 +1,6 @@
 //! Using `MultipartWrite` with streams.
 //!
-//! This module contains an extension [`MultipartStreamExt`] that has adapters
+//! This module contains the extension [`MultipartStreamExt`] that has adapters
 //! for composing `MultipartWrite` with streams.
 use crate::MultipartWrite;
 
@@ -31,8 +31,8 @@ pub trait MultipartStreamExt: Stream {
     }
 
     /// Sends items of this stream to the writer, yielding the completed written
-    /// value as the next item in the resulting stream when the predicate
-    /// provided returns `true`.
+    /// value as the next item in the resulting stream when the provided closure
+    /// returns `true`.
     fn complete_when<Wr, F>(self, writer: Wr, f: F) -> CompleteWhen<Self, Wr, F>
     where
         Wr: MultipartWrite<Self::Item>,
@@ -42,8 +42,8 @@ pub trait MultipartStreamExt: Stream {
         CompleteWhen::new(self, writer, f)
     }
 
-    /// Sends an item of this stream to the writer, yielding the returned value
-    /// as the next item in the resulting stream.
+    /// Call `start_send` on the provided writer with the items of this stream,
+    /// yielding the output of the call as items for the resulting stream.
     fn try_send<Wr>(self, writer: Wr) -> TrySend<Self, Wr>
     where
         Wr: MultipartWrite<Self::Item>,

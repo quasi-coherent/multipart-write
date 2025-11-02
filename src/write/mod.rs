@@ -14,6 +14,9 @@ pub use and_then::AndThen;
 mod buffered;
 pub use buffered::Buffered;
 
+mod clear_with;
+pub use clear_with::ClearWith;
+
 mod complete;
 pub use complete::Complete;
 
@@ -25,6 +28,9 @@ pub use feed::Feed;
 
 mod filter;
 pub use filter::Filter;
+
+mod filter_map;
+pub use filter_map::FilterMap;
 
 mod fold_ret;
 pub use fold_ret::FoldRet;
@@ -49,9 +55,15 @@ pub use with::With;
 
 impl<Wr: MultipartWrite<Part>, Part> MultipartWriteExt<Part> for Wr {}
 
-/// An extension trait for `MultipartWrite` providing
+/// An extension trait for `MultipartWrite` providing a variety of convenient
+/// combinator functions.
 pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
-    /// Chain a computation on the output of a writer.
+    /// Compute from this writer's output type a new output of a different type
+    /// using an asynchronous closure.
+    ///
+    /// Calling `poll_complete` on this writer will complete the inner writer,
+    /// then run the provided closure `f` with the output to produce the final
+    /// output of this writer.
     fn and_then<T, E, Fut, F>(self, f: F) -> AndThen<Self, Fut, F>
     where
         F: FnMut(Self::Output) -> Fut,
@@ -91,6 +103,18 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         Self: Sized,
     {
         Buffered::new(self, capacity.into().unwrap_or_default())
+    }
+
+    /// Computes the closure before returning the completed output.
+    ///
+    /// This can be used to reset some internal state of the writer in order to
+    /// prepare it to be written to again.
+    fn clear_with<Wr, T, F>(self, val: T, f: F) -> ClearWith<Self, T, F>
+    where
+        F: FnMut(&mut Self, &T),
+        Self: Sized + Unpin,
+    {
+        ClearWith::new(self, val, f)
     }
 
     /// A future that runs this writer to completion, returning the associated
@@ -138,6 +162,19 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         Self: Sized,
     {
         Filter::new(self, f)
+    }
+
+    /// Attempt to map the input to a part for this writer, filtering out the
+    /// inputs where the mapping returns `None`.
+    ///
+    /// The return type of this writer is `Option<Self::Ret>` and is `None` when
+    /// the mapping of the input `U` did not pass the filter.
+    fn filter_map<U, F>(self, f: F) -> FilterMap<Self, F>
+    where
+        F: FnMut(U) -> Option<Part>,
+        Self: Sized,
+    {
+        FilterMap::new(self, f)
     }
 
     /// A future that completes when the underlying writer has been flushed.
@@ -189,9 +226,8 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         Returning::new(self, f)
     }
 
-    /// A convenience method for calling [`poll_ready`] on [`Unpin`] writer types.
-    ///
-    /// [`poll_ready`]: super::MultipartWrite::poll_ready
+    /// A convenience method for calling [`MultipartWrite::poll_ready`] on
+    /// [`Unpin`] writer types.
     #[must_use = "futures do nothing unless polled"]
     fn poll_ready_unpin(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>>
     where
@@ -200,9 +236,8 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         Pin::new(self).poll_ready(cx)
     }
 
-    /// A convenience method for calling [`poll_flush`] on [`Unpin`] writer types.
-    ///
-    /// [`poll_flush`]: super::MultipartWrite::poll_flush
+    /// A convenience method for calling [`MultipartWrite::poll_flush`] on
+    /// [`Unpin`] writer types.
     #[must_use = "futures do nothing unless polled"]
     fn poll_flush_unpin(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>>
     where
@@ -211,9 +246,8 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         Pin::new(self).poll_flush(cx)
     }
 
-    /// A convenience method for calling [`poll_complete`] on [`Unpin`] writer types.
-    ///
-    /// [`poll_complete`]: super::MultipartWrite::poll_complete
+    /// A convenience method for calling [`MultipartWrite::poll_complete`] on
+    /// [`Unpin`] writer types.
     #[must_use = "futures do nothing unless polled"]
     fn poll_complete_unpin(
         &mut self,

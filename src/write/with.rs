@@ -80,7 +80,7 @@ impl<Wr, Part, Fut, F> With<Wr, Part, Fut, F> {
     }
 }
 
-impl<Wr, U, Part, Fut, F, E> FusedMultipartWrite<U> for With<Wr, Part, Fut, F>
+impl<Wr, U, E, Part, Fut, F> FusedMultipartWrite<U> for With<Wr, Part, Fut, F>
 where
     Wr: FusedMultipartWrite<Part>,
     F: FnMut(U) -> Fut,
@@ -92,7 +92,7 @@ where
     }
 }
 
-impl<Wr, U, Part, Fut, F, E> MultipartWrite<U> for With<Wr, Part, Fut, F>
+impl<Wr, U, E, Part, Fut, F> MultipartWrite<U> for With<Wr, Part, Fut, F>
 where
     Wr: MultipartWrite<Part>,
     F: FnMut(U) -> Fut,
@@ -126,8 +126,8 @@ where
         cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>> {
         ready!(self.as_mut().poll(cx))?;
-        let res = ready!(self.project().writer.poll_complete(cx))?;
-        Poll::Ready(Ok(res))
+        let out = ready!(self.project().writer.poll_complete(cx))?;
+        Poll::Ready(Ok(out))
     }
 }
 
@@ -140,7 +140,7 @@ where
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("With")
             .field("writer", &self.writer)
-            .field("f", &"F")
+            .field("f", &"impl FnMut(U) -> Fut")
             .field("future", &self.future)
             .field("buffered", &self.buffered)
             .finish()

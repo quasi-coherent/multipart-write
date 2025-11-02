@@ -87,7 +87,7 @@ impl<Wr: Debug, F> Debug for Filter<Wr, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Filter")
             .field("writer", &self.writer)
-            .field("f", &"F")
+            .field("f", &"impl FnMut(&Part) -> bool")
             .finish()
     }
 }

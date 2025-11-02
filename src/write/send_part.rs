@@ -11,7 +11,7 @@ use std::task::{Context, Poll};
 #[must_use = "futures do nothing unless polled"]
 pub struct SendPart<'a, Wr: ?Sized + MultipartWrite<Part>, Part> {
     feed: Feed<'a, Wr, Part>,
-    output: Option<Wr::Ret>,
+    ret: Option<Wr::Ret>,
 }
 
 impl<Wr: ?Sized + MultipartWrite<Part> + Unpin, Part> Unpin for SendPart<'_, Wr, Part> {}
@@ -20,7 +20,7 @@ impl<'a, Wr: ?Sized + MultipartWrite<Part> + Unpin, Part> SendPart<'a, Wr, Part>
     pub(super) fn new(writer: &'a mut Wr, part: Part) -> Self {
         Self {
             feed: Feed::new(writer, part),
-            output: None,
+            ret: None,
         }
     }
 }
@@ -42,17 +42,14 @@ impl<Wr: ?Sized + MultipartWrite<Part> + Unpin, Part> Future for SendPart<'_, Wr
 
         if this.feed.is_part_pending() {
             let ret = ready!(Pin::new(&mut this.feed).poll(cx))?;
-            this.output = Some(ret);
+            this.ret = Some(ret);
             debug_assert!(!this.feed.is_part_pending());
         }
 
         ready!(this.feed.writer_pin_mut().poll_flush(cx))?;
-        let output = this
-            .output
-            .take()
-            .expect("polled SendPart after completion");
+        let ret = this.ret.take().expect("polled SendPart after completion");
 
-        Poll::Ready(Ok(output))
+        Poll::Ready(Ok(ret))
     }
 }
 
@@ -65,7 +62,7 @@ where
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("SendPart")
             .field("feed", &self.feed)
-            .field("output", &self.output)
+            .field("ret", &self.ret)
             .finish()
     }
 }

@@ -1,22 +1,26 @@
 use crate::{FusedMultipartWrite, MultipartWrite};
 
+use futures_core::ready;
 use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 pin_project_lite::pin_project! {
-    /// `MultipartWrite` for [`map_ok`](super::MultipartWriteExt::map_ok).
+    /// `MultipartWrite` for [`clear_with`].
+    ///
+    /// [`clear_with`]: super::MultipartWriteExt::clear_with
     #[must_use = "futures do nothing unless polled"]
-    pub struct MapOk<Wr, F> {
+    pub struct ClearWith<Wr, T, F> {
         #[pin]
         writer: Wr,
+        val: T,
         f: F,
     }
 }
 
-impl<Wr, F> MapOk<Wr, F> {
-    pub(super) fn new(writer: Wr, f: F) -> Self {
-        Self { writer, f }
+impl<Wr: Unpin, T, F> ClearWith<Wr, T, F> {
+    pub(super) fn new(writer: Wr, val: T, f: F) -> Self {
+        Self { writer, val, f }
     }
 
     /// Acquires a reference to the underlying writer.
@@ -39,23 +43,23 @@ impl<Wr, F> MapOk<Wr, F> {
     }
 }
 
-impl<U, Wr, F, Part> FusedMultipartWrite<Part> for MapOk<Wr, F>
+impl<Wr, Part, T, F> FusedMultipartWrite<Part> for ClearWith<Wr, T, F>
 where
-    Wr: FusedMultipartWrite<Part>,
-    F: FnMut(Wr::Output) -> U,
+    Wr: FusedMultipartWrite<Part> + Unpin,
+    F: FnMut(&mut Wr, &T),
 {
     fn is_terminated(&self) -> bool {
         self.writer.is_terminated()
     }
 }
 
-impl<U, Wr, F, Part> MultipartWrite<Part> for MapOk<Wr, F>
+impl<Wr, Part, T, F> MultipartWrite<Part> for ClearWith<Wr, T, F>
 where
-    Wr: MultipartWrite<Part>,
-    F: FnMut(Wr::Output) -> U,
+    Wr: MultipartWrite<Part> + Unpin,
+    F: FnMut(&mut Wr, &T),
 {
     type Ret = Wr::Ret;
-    type Output = U;
+    type Output = Wr::Output;
     type Error = Wr::Error;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -71,22 +75,26 @@ where
     }
 
     fn poll_complete(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>> {
-        self.as_mut()
-            .project()
-            .writer
-            .poll_complete(cx)
-            .map_ok(self.as_mut().project().f)
+        let mut this = self.project();
+        let out = ready!(this.writer.as_mut().poll_complete(cx));
+        (this.f)(&mut this.writer, &*this.val);
+        Poll::Ready(out)
     }
 }
 
-impl<Wr: Debug, F> Debug for MapOk<Wr, F> {
+impl<Wr, T, F> Debug for ClearWith<Wr, T, F>
+where
+    Wr: Debug,
+    T: Debug,
+{
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("MapOk")
+        f.debug_struct("ClearWith")
             .field("writer", &self.writer)
-            .field("f", &"impl FnMut(Wr::Output) -> U")
+            .field("val", &self.val)
+            .field("f", &"impl FnMut(&mut Self, &T)")
             .finish()
     }
 }

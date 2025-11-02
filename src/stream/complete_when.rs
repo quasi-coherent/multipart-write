@@ -14,7 +14,7 @@ pin_project_lite::pin_project! {
     #[must_use = "futures do nothing unless polled"]
     pub struct CompleteWhen<St: Stream, Wr, F> {
         #[pin]
-        stream: TrySend<St, Wr>,
+        inner: TrySend<St, Wr>,
         f: F,
         should_complete: bool,
         is_terminated: bool,
@@ -22,9 +22,9 @@ pin_project_lite::pin_project! {
 }
 
 impl<St: Stream, Wr, F> CompleteWhen<St, Wr, F> {
-    pub(super) fn new(stream: St, writer: Wr, f: F) -> Self {
+    pub(super) fn new(inner: St, writer: Wr, f: F) -> Self {
         Self {
-            stream: TrySend::new(stream, writer),
+            inner: TrySend::new(inner, writer),
             f,
             should_complete: false,
             is_terminated: false,
@@ -39,7 +39,7 @@ where
     F: FnMut(Wr::Ret) -> bool,
 {
     fn is_terminated(&self) -> bool {
-        self.stream.is_terminated() || self.is_terminated
+        self.inner.is_terminated() || self.is_terminated
     }
 }
 
@@ -56,14 +56,14 @@ where
 
         loop {
             if *this.should_complete {
-                let res = ready!(this.stream.as_mut().poll_complete(cx));
+                let res = ready!(this.inner.as_mut().poll_complete(cx));
                 *this.should_complete = false;
                 return Poll::Ready(Some(res));
             }
 
-            match ready!(this.stream.as_mut().poll_next(cx)) {
-                Some(Ok(res)) => {
-                    if (this.f)(res) {
+            match ready!(this.inner.as_mut().poll_next(cx)) {
+                Some(Ok(ret)) => {
+                    if (this.f)(ret) {
                         *this.should_complete = true;
                     }
                 }
@@ -85,7 +85,7 @@ where
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("CompleteWhen")
-            .field("stream", &self.stream)
+            .field("inner", &self.inner)
             .field("f", &"FnMut(Wr::Ret) -> bool")
             .field("should_complete", &self.should_complete)
             .field("is_terminated", &self.is_terminated)

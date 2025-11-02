@@ -37,9 +37,9 @@ impl<Wr: ?Sized + MultipartWrite<Part> + Unpin, Part> Future for Complete<'_, Wr
     type Output = Result<Wr::Output, Wr::Error>;
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         ready!(self.writer.poll_flush_unpin(cx))?;
-        let output = ready!(self.writer.poll_complete_unpin(cx));
+        let out = ready!(self.writer.poll_complete_unpin(cx));
         self.is_terminated = true;
-        Poll::Ready(output)
+        Poll::Ready(out)
     }
 }
 
