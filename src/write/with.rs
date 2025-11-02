@@ -8,32 +8,23 @@ use std::task::{Context, Poll};
 pin_project_lite::pin_project! {
     /// `MultipartWrite` for [`with`](super::MultipartWriteExt::with).
     #[must_use = "futures do nothing unless polled"]
-    pub struct With<Wr, Part, U, Fut, F> {
+    pub struct With<Wr, Part, Fut, F> {
         #[pin]
         writer: Wr,
         f: F,
         #[pin]
         future: Option<Fut>,
-        _f: std::marker::PhantomData<fn(U) -> Part>,
+        buffered: Option<Part>,
     }
 }
 
-impl<Wr, Part, U, Fut, F> With<Wr, Part, U, Fut, F>
-where
-    Wr: MultipartWrite<Part>,
-    F: FnMut(U) -> Fut,
-    Fut: Future,
-{
-    pub(super) fn new<E>(writer: Wr, f: F) -> Self
-    where
-        Fut: Future<Output = Result<Part, E>>,
-        E: From<Wr::Error>,
-    {
+impl<Wr, Part, Fut, F> With<Wr, Part, Fut, F> {
+    pub(super) fn new(writer: Wr, f: F) -> Self {
         Self {
             writer,
             f,
             future: None,
-            _f: std::marker::PhantomData,
+            buffered: None,
         }
     }
 
@@ -55,29 +46,41 @@ where
     pub fn get_pin_mut(self: Pin<&mut Self>) -> Pin<&mut Wr> {
         self.project().writer
     }
-}
 
-impl<Wr, Part, U, Fut, F, E> With<Wr, Part, U, Fut, F>
-where
-    Wr: MultipartWrite<Part>,
-    F: FnMut(U) -> Fut,
-    Fut: Future<Output = Result<Part, E>>,
-    E: From<Wr::Error>,
-{
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), E>> {
+    fn poll<U, E>(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<(), E>>
+    where
+        Wr: MultipartWrite<Part>,
+        F: FnMut(U) -> Fut,
+        Fut: Future<Output = Result<Part, E>>,
+        E: From<Wr::Error>,
+    {
         let mut this = self.project();
 
-        let part = match this.future.as_mut().as_pin_mut() {
-            None => return Poll::Ready(Ok(())),
-            Some(fut) => ready!(fut.poll(cx))?,
-        };
-        this.future.set(None);
-        this.writer.start_send(part)?;
-        Poll::Ready(Ok(()))
+        loop {
+            if this.buffered.is_some() {
+                // Check if the underlying sink is prepared for another item.
+                // If it is, we have to send it without yielding in between.
+                match this.writer.as_mut().poll_ready(cx)? {
+                    Poll::Ready(()) => {
+                        let _ = this.writer.start_send(this.buffered.take().unwrap())?;
+                    }
+                    Poll::Pending => match this.writer.as_mut().poll_flush(cx)? {
+                        Poll::Ready(()) => continue, // check `poll_ready` again
+                        Poll::Pending => return Poll::Pending,
+                    },
+                }
+            }
+            if let Some(fut) = this.future.as_mut().as_pin_mut() {
+                let part = ready!(fut.poll(cx))?;
+                *this.buffered = Some(part);
+                this.future.set(None);
+            }
+            return Poll::Ready(Ok(()));
+        }
     }
 }
 
-impl<Wr, Part, U, Fut, F, E> FusedMultipartWrite<U> for With<Wr, Part, U, Fut, F>
+impl<Wr, U, Part, Fut, F, E> FusedMultipartWrite<U> for With<Wr, Part, Fut, F>
 where
     Wr: FusedMultipartWrite<Part>,
     F: FnMut(U) -> Fut,
@@ -89,7 +92,7 @@ where
     }
 }
 
-impl<Wr, Part, U, Fut, F, E> MultipartWrite<U> for With<Wr, Part, U, Fut, F>
+impl<Wr, U, Part, Fut, F, E> MultipartWrite<U> for With<Wr, Part, Fut, F>
 where
     Wr: MultipartWrite<Part>,
     F: FnMut(U) -> Fut,
@@ -123,21 +126,23 @@ where
         cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>> {
         ready!(self.as_mut().poll(cx))?;
-        let ret = ready!(self.project().writer.poll_complete(cx)?);
-        Poll::Ready(Ok(ret))
+        let res = ready!(self.project().writer.poll_complete(cx))?;
+        Poll::Ready(Ok(res))
     }
 }
 
-impl<Wr, Part, U, Fut, F> Debug for With<Wr, Part, U, Fut, F>
+impl<Wr, Part, Fut, F> Debug for With<Wr, Part, Fut, F>
 where
     Wr: Debug,
     Fut: Debug,
+    Part: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("With")
             .field("writer", &self.writer)
             .field("f", &"F")
             .field("future", &self.future)
+            .field("buffered", &self.buffered)
             .finish()
     }
 }

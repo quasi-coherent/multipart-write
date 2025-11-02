@@ -50,7 +50,9 @@ impl Eg {
     /// the book when the stream is exhausted.
     fn short_story() -> impl Future<Output = Result<Book, String>> {
         let author = Author::new(10);
-        stream::iter(Narrative).take(10 * 10).write_complete(author)
+        stream::iter(Narrative)
+            .take(10 * 10)
+            .collect_complete(author)
     }
 
     /// Here is the same short story except every line is backwards now.
@@ -59,8 +61,11 @@ impl Eg {
     ///
     /// The combinator `with` is similar except the function returns a future.
     fn map_reversed() -> impl Future<Output = Result<Book, String>> {
-        let rohtua = Author::new(10).map_part(|line: String| line.chars().rev().collect());
-        stream::iter(Narrative).take(10 * 10).write_complete(rohtua)
+        let author = Author::new(10);
+        let rohtua = author.with(|line: String| future::ready(Ok(line.chars().rev().collect())));
+        stream::iter(Narrative)
+            .take(10 * 10)
+            .collect_complete(rohtua)
     }
 
     /// A `MultipartWrite` can also be turned into a stream.
@@ -80,7 +85,7 @@ impl Eg {
 
         stream::iter(Narrative)
             .take(3125)
-            .feed_multipart_write(author, |state| state.page_number() >= 100)
+            .complete_when(author, |state| state.page_number() >= 100)
             .filter_map(|out| future::ready(out.ok()))
     }
 
@@ -95,11 +100,11 @@ impl Eg {
     /// In this case the computation is a (mock of a) call to a Google Translate
     /// API and it returns the same type of output as the inner writer.
     fn french_book_stream() -> impl Stream<Item = Book> {
-        let author = Author::new(10).then(Translator::get_translation);
+        let author = Author::new(10).and_then(Translator::get_translation);
 
         stream::iter(Narrative)
             .take(3125)
-            .feed_multipart_write(author, |state| state.page_number() >= 100)
+            .complete_when(author, |state| state.page_number() >= 100)
             .filter_map(|out| future::ready(out.ok()))
     }
 }
@@ -118,6 +123,7 @@ struct Author {
     page: Page,
     line_limit: usize,
     current_page: PageNumber,
+    books_written: usize,
 }
 
 impl Author {
@@ -127,6 +133,7 @@ impl Author {
             page: Page::new(line_limit),
             line_limit,
             current_page: PageNumber::default(),
+            books_written: 0,
         }
     }
 
@@ -205,16 +212,11 @@ impl MultipartWrite<String> for Author {
         let new_book = self.book.start_next();
         let book = std::mem::replace(&mut self.book, new_book);
         self.current_page = PageNumber::default();
+        self.books_written += 1;
         Poll::Ready(Ok(book))
     }
 }
 
-// Required implementation to be able to use in a stream.
-//
-// In this writer's case it's not really important because it can go on
-// indefinitely, does not error, and completing a write leaves the writer in a
-// pure state.  But if any one of these were not the case, the issue of how to
-// end a stream needs the concept of a "fused" multipart writer.
 impl FusedMultipartWrite<String> for Author {
     fn is_terminated(&self) -> bool {
         false
@@ -236,9 +238,9 @@ struct Translator;
 
 impl Translator {
     /// Mocking a call to  API to translate or something.
-    fn get_translation(mut book: Book) -> impl Future<Output = Book> {
+    fn get_translation(mut book: Book) -> impl Future<Output = Result<Book, String>> {
         book.iter_mut().for_each(|(_, pg)| Self::translate_page(pg));
-        future::ready(book)
+        future::ready(Ok(book))
     }
 
     fn translate_page(pg: &mut Page) {
@@ -313,10 +315,13 @@ impl Default for Book {
 }
 
 impl Book {
+    /// Return the string representation of the book's edition.
     fn edition(&self) -> String {
         format!("Ed. {}", self.0)
     }
 
+    /// Start the next book by incrementing the edition and starting a new map of
+    /// page number to page.
     fn start_next(&self) -> Book {
         Book(self.0 + 1, BTreeMap::default())
     }

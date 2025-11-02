@@ -1,4 +1,7 @@
-//! `MultipartWrite` for foreign writer types.
+//! `MultipartWrite` for foreign IO writer types.
+//!
+//! This module implements `MultipartWrite` for the `tokio` and `std` writer
+//! types, and it has constructors for creating these implementations.
 use std::io::Write;
 
 #[cfg(feature = "tokio")]
@@ -12,11 +15,7 @@ pub use multi_async_writer::{MultiAsyncWriter, async_write};
 mod multi_io_writer;
 pub use multi_io_writer::MultiIoWriter;
 
-/// Converts a [`Write`] into a [`MultipartWrite`] that is always available to
-/// have parts written.
-///
-/// [`Write`]: std::io::Write
-/// [`MultipartWrite`]: crate::MultipartWrite
+/// Constructs a `MultipartWrite` from an `std::io::Write`.
 pub fn io_write<W: Write + Default>(write: W) -> MultiIoWriter<W> {
     MultiIoWriter::new(write)
 }

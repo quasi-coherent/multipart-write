@@ -1,37 +1,54 @@
-//! `MultipartWrite`rs compatible with [`Stream`].
-use crate::{FusedMultipartWrite, MultipartWrite};
+//! Using `MultipartWrite` with streams.
+//!
+//! This module contains an extension [`MultipartStreamExt`] that has adapters
+//! for composing `MultipartWrite` with streams.
+use crate::MultipartWrite;
 
 use futures_core::stream::Stream;
 
-mod feed_multipart_write;
-pub use feed_multipart_write::FeedMultipartWrite;
+mod collect_complete;
+pub use collect_complete::CollectComplete;
 
-mod write_complete;
-pub use write_complete::WriteComplete;
+mod complete_when;
+pub use complete_when::CompleteWhen;
+
+mod try_send;
+pub use try_send::TrySend;
 
 impl<St: Stream> MultipartStreamExt for St {}
 
-/// Extension trait for combining streams with [`MultipartWrite`]rs.
+/// An extension trait for `Stream`s that provides combinators to use with
+/// `MultipartWrite`rs.
 pub trait MultipartStreamExt: Stream {
-    /// This adapter transforms the stream into a new stream whose item type is
-    /// the output of the multipart writer writing parts until the closure `F`
-    /// indicates the writer should be completed.
-    fn feed_multipart_write<Wr, F>(self, writer: Wr, f: F) -> FeedMultipartWrite<Self, Wr, F>
-    where
-        Wr: FusedMultipartWrite<Self::Item>,
-        F: FnMut(Wr::Ret) -> bool,
-        Self: Sized,
-    {
-        FeedMultipartWrite::new(self, writer, f)
-    }
-
     /// Collects a stream by writing to a `MultipartWrite`, returning the
     /// result of completing the write as a future.
-    fn write_complete<Wr>(self, writer: Wr) -> WriteComplete<Self, Wr>
+    fn collect_complete<Wr>(self, writer: Wr) -> CollectComplete<Self, Wr>
     where
         Wr: MultipartWrite<Self::Item>,
         Self: Sized,
     {
-        WriteComplete::new(self, writer)
+        CollectComplete::new(self, writer)
+    }
+
+    /// Sends items of this stream to the writer, yielding the completed written
+    /// value as the next item in the resulting stream when the predicate
+    /// provided returns `true`.
+    fn complete_when<Wr, F>(self, writer: Wr, f: F) -> CompleteWhen<Self, Wr, F>
+    where
+        Wr: MultipartWrite<Self::Item>,
+        F: FnMut(Wr::Ret) -> bool,
+        Self: Sized,
+    {
+        CompleteWhen::new(self, writer, f)
+    }
+
+    /// Sends an item of this stream to the writer, yielding the returned value
+    /// as the next item in the resulting stream.
+    fn try_send<Wr>(self, writer: Wr) -> TrySend<Self, Wr>
+    where
+        Wr: MultipartWrite<Self::Item>,
+        Self: Sized,
+    {
+        TrySend::new(self, writer)
     }
 }

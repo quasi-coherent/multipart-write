@@ -20,7 +20,7 @@
 //! 2. Be able to be inserted at more locations in a stream computation.
 //! 3. Be useful in more cases by having a value returned when starting a write.
 //! 4. Be able to transform a stream into another stream, which is really just
-//! a more specific phrasing of 3.
+//!    a more specific phrasing of 3.
 //!
 //! [`Sink`]: https://docs.rs/crate/futures-sink/0.3.31
 //! [example]: https://github.com/quasi-coherent/multipart-write/blob/master/examples/author.rs

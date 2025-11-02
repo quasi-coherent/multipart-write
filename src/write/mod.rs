@@ -1,17 +1,15 @@
 //! `MultipartWrite` combinators.
 //!
 //! This module contains the trait [`MultipartWriteExt`], which provides adapters
-//! for chaining and composing [`MultipartWrite`]rs.
-use crate::{BoxMultipartWrite, LocalBoxMultipartWrite};
-
+//! for chaining and composing `MultipartWrite`rs.
 use futures_core::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-pub use crate::MultipartWrite;
+pub use crate::{BoxMultipartWrite, LocalBoxMultipartWrite, MultipartWrite};
 
-mod bootstrapped;
-pub use bootstrapped::Bootstrapped;
+mod and_then;
+pub use and_then::AndThen;
 
 mod buffered;
 pub use buffered::Buffered;
@@ -25,52 +23,43 @@ pub use fanout::Fanout;
 mod feed;
 pub use feed::Feed;
 
+mod filter;
+pub use filter::Filter;
+
 mod fold_ret;
 pub use fold_ret::FoldRet;
 
 mod flush;
 pub use flush::Flush;
 
-mod map;
-pub use map::Map;
-
 mod map_err;
 pub use map_err::MapErr;
 
-mod map_part;
-pub use map_part::MapPart;
+mod map_ok;
+pub use map_ok::MapOk;
 
-mod map_ret;
-pub use map_ret::MapRet;
+mod returning;
+pub use returning::Returning;
 
 mod send_part;
 pub use send_part::SendPart;
-
-mod then;
-pub use then::Then;
 
 mod with;
 pub use with::With;
 
 impl<Wr: MultipartWrite<Part>, Part> MultipartWriteExt<Part> for Wr {}
 
-/// An extension trait for `MultipartWrite`rs providing a variety of convenient
-/// combinator functions.
+/// An extension trait for `MultipartWrite` providing
 pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
-    /// Returns a writer wrapping this one and having the property that a call to
-    /// `poll_ready` will create `Self` if missing.
-    ///
-    /// The value `S` and closure `F` determine how this is done.  If a multipart
-    /// write is not left in a reusable state after `poll_complete`, this adapter
-    /// can be used to make a writer more than one-time-use where it otherwise
-    /// would not be.
-    fn bootstrapped<S, F, Fut>(self, s: S, f: F) -> Bootstrapped<Self, S, F, Fut>
+    /// Chain a computation on the output of a writer.
+    fn and_then<T, E, Fut, F>(self, f: F) -> AndThen<Self, Fut, F>
     where
-        F: FnMut(&mut S) -> Fut,
-        Fut: Future<Output = Result<Option<Self>, Self::Error>>,
+        F: FnMut(Self::Output) -> Fut,
+        Fut: Future<Output = Result<T, E>>,
+        E: From<Self::Error>,
         Self: Sized,
     {
-        Bootstrapped::new(self, s, f)
+        AndThen::new(self, f)
     }
 
     /// Wrap this writer in a `Box`, pinning it.
@@ -138,6 +127,19 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         Feed::new(self, part)
     }
 
+    /// Apply a filter to this writer's parts, returning a new writer with the
+    /// same output.
+    ///
+    /// The return type of this writer is `Option<Self::Ret>` and is `None` when
+    /// the part did not pass the filter.
+    fn filter<F>(self, f: F) -> Filter<Self, F>
+    where
+        F: FnMut(&Part) -> bool,
+        Self: Sized,
+    {
+        Filter::new(self, f)
+    }
+
     /// A future that completes when the underlying writer has been flushed.
     fn flush(&mut self) -> Flush<'_, Self, Part>
     where
@@ -149,7 +151,7 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// Accumulate this writer's returned values, returning a new multipart
     /// writer that pairs the underlying writer's output with the
     /// result of the accumulating function.
-    fn fold_ret<T, F>(self, id: T, f: F) -> FoldRet<Self, F, T>
+    fn fold_ret<T, F>(self, id: T, f: F) -> FoldRet<Self, T, F>
     where
         F: FnMut(T, &Self::Ret) -> T,
         Self: Sized,
@@ -159,12 +161,12 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
 
     /// Map this writer's output type to a different type, returning a new
     /// multipart writer with the given output type.
-    fn map<U, F>(self, f: F) -> Map<Self, F>
+    fn map_ok<U, F>(self, f: F) -> MapOk<Self, F>
     where
         F: FnMut(Self::Output) -> U,
         Self: Sized,
     {
-        Map::new(self, f)
+        MapOk::new(self, f)
     }
 
     /// Map this writer's error type to a different value, returning a new
@@ -177,24 +179,14 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         MapErr::new(self, f)
     }
 
-    /// Pre-compose the underlying writer with a function that transforms a
-    /// the input part type.
-    fn map_part<U, F>(self, f: F) -> MapPart<Self, F>
-    where
-        F: FnMut(U) -> Part,
-        Self: MultipartWrite<Part> + Sized,
-    {
-        MapPart::new(self, f)
-    }
-
     /// Map this writer's return type to a different value, returning a new
     /// multipart writer with the given return type.
-    fn map_ret<U, F>(self, f: F) -> MapRet<Self, F>
+    fn returning<U, F>(self, f: F) -> Returning<Self, F>
     where
         F: FnMut(Self::Ret) -> U,
         Self: Sized,
     {
-        MapRet::new(self, f)
+        Returning::new(self, f)
     }
 
     /// A convenience method for calling [`poll_ready`] on [`Unpin`] writer types.
@@ -242,21 +234,12 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         SendPart::new(self, part)
     }
 
-    /// Chain a computation on the output of a writer.
-    fn then<U, F, Fut>(self, f: F) -> Then<Self, F, Fut>
-    where
-        F: FnMut(Self::Output) -> Fut,
-        Fut: Future<Output = U>,
-        Self: Sized,
-    {
-        Then::new(self, f)
-    }
-
-    /// Composes a function in front of the `MultipartWrite`.
+    /// Provide a part to this writer in the output of a future.
     ///
-    /// This adapter produces a new `MultipartWrite` by passing each part through
-    /// the given function `f` before sending it to `self`.
-    fn with<U, Fut, F, E>(self, f: F) -> With<Self, Part, U, Fut, F>
+    /// The result is a new writer over the type `U` that passes each value
+    /// through the function `f`, resolving the output, and sending it to the
+    /// inner writer.
+    fn with<U, E, Fut, F>(self, f: F) -> With<Self, Part, Fut, F>
     where
         F: FnMut(U) -> Fut,
         Fut: Future<Output = Result<Part, E>>,

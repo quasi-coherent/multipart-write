@@ -1,9 +1,10 @@
 use crate::{FusedMultipartWrite, MultipartWrite};
 
+use futures_core::ready;
 use std::collections::VecDeque;
 use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
-use std::task::{self, Context, Poll};
+use std::task::{Context, Poll};
 
 pin_project_lite::pin_project! {
     /// `MultipartWrite` for the [`buffered`] method.
@@ -18,7 +19,7 @@ pin_project_lite::pin_project! {
     }
 }
 
-impl<Wr: MultipartWrite<Part>, Part> Buffered<Wr, Part> {
+impl<Wr, Part> Buffered<Wr, Part> {
     pub(super) fn new(writer: Wr, capacity: usize) -> Self {
         Self {
             writer,
@@ -46,14 +47,17 @@ impl<Wr: MultipartWrite<Part>, Part> Buffered<Wr, Part> {
         self.project().writer
     }
 
-    fn try_empty_buffer(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Wr::Error>> {
+    fn try_empty_buffer(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Wr::Error>>
+    where
+        Wr: MultipartWrite<Part>,
+    {
         let mut this = self.project();
 
-        task::ready!(this.writer.as_mut().poll_ready(cx))?;
+        ready!(this.writer.as_mut().poll_ready(cx))?;
         while let Some(part) = this.buf.pop_front() {
             this.writer.as_mut().start_send(part)?;
             if !this.buf.is_empty() {
-                task::ready!(this.writer.as_mut().poll_ready(cx))?;
+                ready!(this.writer.as_mut().poll_ready(cx))?;
             }
         }
         Poll::Ready(Ok(()))
@@ -99,7 +103,7 @@ where
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        task::ready!(self.as_mut().try_empty_buffer(cx))?;
+        ready!(self.as_mut().try_empty_buffer(cx))?;
         self.project().writer.poll_flush(cx)
     }
 
@@ -107,7 +111,7 @@ where
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>> {
-        task::ready!(self.as_mut().try_empty_buffer(cx))?;
+        ready!(self.as_mut().try_empty_buffer(cx))?;
         self.project().writer.poll_complete(cx)
     }
 }

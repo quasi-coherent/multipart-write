@@ -8,7 +8,7 @@ use std::task::{Context, Poll};
 pin_project_lite::pin_project! {
     /// `MultipartWrite` for [`fold_ret`](super::MultipartWriteExt::fold_ret).
     #[must_use = "futures do nothing unless polled"]
-    pub struct FoldRet<Wr, F, T> {
+    pub struct FoldRet<Wr, T, F> {
         #[pin]
         writer: Wr,
         acc: Option<T>,
@@ -16,7 +16,7 @@ pin_project_lite::pin_project! {
     }
 }
 
-impl<Wr, F, T> FoldRet<Wr, F, T> {
+impl<Wr, T, F> FoldRet<Wr, T, F> {
     pub(super) fn new(writer: Wr, id: T, f: F) -> Self {
         Self {
             writer,
@@ -45,7 +45,7 @@ impl<Wr, F, T> FoldRet<Wr, F, T> {
     }
 }
 
-impl<Wr, F, T, Part> FusedMultipartWrite<Part> for FoldRet<Wr, F, T>
+impl<Wr, T, F, Part> FusedMultipartWrite<Part> for FoldRet<Wr, T, F>
 where
     Wr: FusedMultipartWrite<Part>,
     F: FnMut(T, &Wr::Ret) -> T,
@@ -55,7 +55,7 @@ where
     }
 }
 
-impl<Wr, F, T, Part> MultipartWrite<Part> for FoldRet<Wr, F, T>
+impl<Wr, T, F, Part> MultipartWrite<Part> for FoldRet<Wr, T, F>
 where
     Wr: MultipartWrite<Part>,
     F: FnMut(T, &Wr::Ret) -> T,
@@ -91,7 +91,7 @@ where
     }
 }
 
-impl<Wr, F, T> Debug for FoldRet<Wr, F, T>
+impl<Wr, T, F> Debug for FoldRet<Wr, T, F>
 where
     Wr: Debug,
     T: Debug,

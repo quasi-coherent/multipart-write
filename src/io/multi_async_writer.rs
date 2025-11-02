@@ -7,19 +7,13 @@ use tokio::io::AsyncWrite;
 // https://github.com/rust-lang/rust/blob/ff6dc928c5e33ce8e65c6911a790b9efcb5ef53a/library/std/src/sys/io/mod.rs#L54
 const DEFAULT_BUF_SIZE: usize = 8 * 1024;
 
-/// Converts an [`AsyncWrite`] into a [`MultipartWrite`].
-///
-/// [`AsyncWrite`]: tokio::io::AsyncWrite
-/// [`MultipartWrite`]: crate::MultipartWrite
+/// Constructs a `MultipartWrite` from a `tokio::io::AsyncWrite`.
 pub fn async_write<W: AsyncWrite + Unpin + Default>(write: W) -> MultiAsyncWriter<W> {
     MultiAsyncWriter::new(write)
 }
 
 pin_project_lite::pin_project! {
-    /// `MultiAsyncWriter` implements [`MultipartWrite`] for an asynchronous
-    /// [`tokio::io::AsyncWrite`](tokio::io::AsyncWrite).
-    ///
-    /// [`MultipartWrite`]: crate::MultipartWrite
+    /// The writer returned by [`async_write`](self::async_write).
     #[derive(Debug, Default)]
     pub struct MultiAsyncWriter<W: AsyncWrite> {
         #[pin]

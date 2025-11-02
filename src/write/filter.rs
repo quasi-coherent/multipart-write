@@ -1,29 +1,22 @@
 use crate::{FusedMultipartWrite, MultipartWrite};
 
-use futures_core::ready;
 use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 pin_project_lite::pin_project! {
-    /// `MultipartWrite` for [`then`](super::MultipartWriteExt::then).
+    /// `MultipartWrite` for [`filter`](super::MultipartWriteExt::filter).
     #[must_use = "futures do nothing unless polled"]
-    pub struct Then<Wr, F, Fut> {
+    pub struct Filter<Wr, F> {
         #[pin]
         writer: Wr,
-        #[pin]
-        future: Option<Fut>,
         f: F,
     }
 }
 
-impl<Wr, F, Fut> Then<Wr, F, Fut> {
+impl<Wr, F> Filter<Wr, F> {
     pub(super) fn new(writer: Wr, f: F) -> Self {
-        Self {
-            writer,
-            future: None,
-            f,
-        }
+        Self { writer, f }
     }
 
     /// Acquires a reference to the underlying writer.
@@ -46,25 +39,23 @@ impl<Wr, F, Fut> Then<Wr, F, Fut> {
     }
 }
 
-impl<Wr, F, Fut, Part> FusedMultipartWrite<Part> for Then<Wr, F, Fut>
+impl<Wr, F, Part> FusedMultipartWrite<Part> for Filter<Wr, F>
 where
     Wr: FusedMultipartWrite<Part>,
-    F: FnMut(Wr::Output) -> Fut,
-    Fut: Future,
+    F: FnMut(&Part) -> bool,
 {
     fn is_terminated(&self) -> bool {
-        self.writer.is_terminated() && self.future.is_none()
+        self.writer.is_terminated()
     }
 }
 
-impl<Wr, F, Fut, Part> MultipartWrite<Part> for Then<Wr, F, Fut>
+impl<Wr, F, Part> MultipartWrite<Part> for Filter<Wr, F>
 where
     Wr: MultipartWrite<Part>,
-    F: FnMut(Wr::Output) -> Fut,
-    Fut: Future,
+    F: FnMut(&Part) -> bool,
 {
-    type Ret = Wr::Ret;
-    type Output = Fut::Output;
+    type Ret = Option<Wr::Ret>;
+    type Output = Wr::Output;
     type Error = Wr::Error;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -72,7 +63,12 @@ where
     }
 
     fn start_send(self: Pin<&mut Self>, part: Part) -> Result<Self::Ret, Self::Error> {
-        self.project().writer.start_send(part)
+        let this = self.project();
+        if !(this.f)(&part) {
+            return Ok(None);
+        }
+        let ret = this.writer.start_send(part)?;
+        Ok(Some(ret))
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -80,38 +76,17 @@ where
     }
 
     fn poll_complete(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>> {
-        let mut this = self.project();
-
-        if this.future.is_none() {
-            let ret = ready!(this.writer.poll_complete(cx))?;
-            let fut = (this.f)(ret);
-            this.future.set(Some(fut));
-        }
-
-        let fut = this
-            .future
-            .as_mut()
-            .as_pin_mut()
-            .expect("polled Then after completion");
-        let ret = ready!(fut.poll(cx));
-        this.future.set(None);
-
-        Poll::Ready(Ok(ret))
+        self.as_mut().project().writer.poll_complete(cx)
     }
 }
 
-impl<Wr, F, Fut> Debug for Then<Wr, F, Fut>
-where
-    Wr: Debug,
-    Fut: Debug,
-{
+impl<Wr: Debug, F> Debug for Filter<Wr, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Then")
+        f.debug_struct("Filter")
             .field("writer", &self.writer)
-            .field("future", &self.future)
             .field("f", &"F")
             .finish()
     }

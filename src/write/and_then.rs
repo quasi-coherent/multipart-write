@@ -1,22 +1,29 @@
 use crate::{FusedMultipartWrite, MultipartWrite};
 
+use futures_core::ready;
 use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 pin_project_lite::pin_project! {
-    /// `MultipartWrite` for [`map`](super::MultipartWriteExt::map).
+    /// `MultipartWrite` for [`and_then`](super::MultipartWriteExt::and_then).
     #[must_use = "futures do nothing unless polled"]
-    pub struct Map<Wr, F> {
+    pub struct AndThen<Wr, Fut, F> {
         #[pin]
         writer: Wr,
+        #[pin]
+        future: Option<Fut>,
         f: F,
     }
 }
 
-impl<Wr, F> Map<Wr, F> {
+impl<Wr, Fut, F> AndThen<Wr, Fut, F> {
     pub(super) fn new(writer: Wr, f: F) -> Self {
-        Self { writer, f }
+        Self {
+            writer,
+            future: None,
+            f,
+        }
     }
 
     /// Acquires a reference to the underlying writer.
@@ -39,53 +46,73 @@ impl<Wr, F> Map<Wr, F> {
     }
 }
 
-impl<U, Wr, F, Part> FusedMultipartWrite<Part> for Map<Wr, F>
+impl<Wr, Fut, F, Part, T, E> FusedMultipartWrite<Part> for AndThen<Wr, Fut, F>
 where
     Wr: FusedMultipartWrite<Part>,
-    F: FnMut(Wr::Output) -> U,
+    F: FnMut(Wr::Output) -> Fut,
+    Fut: Future<Output = Result<T, E>>,
+    E: From<Wr::Error>,
 {
     fn is_terminated(&self) -> bool {
         self.writer.is_terminated()
     }
 }
 
-impl<U, Wr, F, Part> MultipartWrite<Part> for Map<Wr, F>
+impl<Wr, Fut, F, Part, T, E> MultipartWrite<Part> for AndThen<Wr, Fut, F>
 where
     Wr: MultipartWrite<Part>,
-    F: FnMut(Wr::Output) -> U,
+    F: FnMut(Wr::Output) -> Fut,
+    Fut: Future<Output = Result<T, E>>,
+    E: From<Wr::Error>,
 {
     type Ret = Wr::Ret;
-    type Output = U;
-    type Error = Wr::Error;
+    type Output = T;
+    type Error = E;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.project().writer.poll_ready(cx)
+        ready!(self.project().writer.poll_ready(cx))?;
+        Poll::Ready(Ok(()))
     }
 
     fn start_send(self: Pin<&mut Self>, part: Part) -> Result<Self::Ret, Self::Error> {
-        self.project().writer.start_send(part)
+        Ok(self.project().writer.start_send(part)?)
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.project().writer.poll_flush(cx)
+        ready!(self.project().writer.poll_flush(cx))?;
+        Poll::Ready(Ok(()))
     }
 
     fn poll_complete(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>> {
-        self.as_mut()
-            .project()
-            .writer
-            .poll_complete(cx)
-            .map_ok(self.as_mut().project().f)
+        let mut this = self.project();
+        if this.future.is_none() {
+            let ret = ready!(this.writer.poll_complete(cx))?;
+            let fut = (this.f)(ret);
+            this.future.set(Some(fut));
+        }
+        let fut = this
+            .future
+            .as_mut()
+            .as_pin_mut()
+            .expect("polled AndThen after completion");
+        let res = ready!(fut.poll(cx));
+        this.future.set(None);
+        Poll::Ready(res)
     }
 }
 
-impl<Wr: Debug, F> Debug for Map<Wr, F> {
+impl<Wr, Fut, F> Debug for AndThen<Wr, Fut, F>
+where
+    Wr: Debug,
+    Fut: Debug,
+{
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Map")
+        f.debug_struct("AndThen")
             .field("writer", &self.writer)
+            .field("future", &self.future)
             .field("f", &"F")
             .finish()
     }
