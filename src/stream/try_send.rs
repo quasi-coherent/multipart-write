@@ -47,7 +47,8 @@ impl<St: Stream, Wr> TrySend<St, Wr> {
                 .start_send(this.buffered.take().unwrap())?;
         }
         ready!(this.writer.as_mut().poll_flush(cx))?;
-        this.writer.as_mut().poll_complete(cx)
+        let out = ready!(this.writer.as_mut().poll_complete(cx));
+        Poll::Ready(out)
     }
 }
 

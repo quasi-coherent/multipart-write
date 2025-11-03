@@ -25,6 +25,8 @@
 //! [`Sink`]: https://docs.rs/crate/futures-sink/0.3.31
 //! [example]: https://github.com/quasi-coherent/multipart-write/blob/master/examples/author.rs
 #![cfg_attr(docsrs, feature(doc_cfg))]
+use std::collections::VecDeque;
+use std::convert::Infallible as Never;
 use std::ops::DerefMut;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -187,5 +189,61 @@ where
 {
     fn is_terminated(&self) -> bool {
         <P::Target as FusedMultipartWrite<Part>>::is_terminated(&**self)
+    }
+}
+
+impl<T> MultipartWrite<T> for Vec<T> {
+    type Ret = ();
+    type Output = Self;
+    type Error = Never;
+
+    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn start_send(self: Pin<&mut Self>, part: T) -> Result<Self::Ret, Self::Error> {
+        unsafe { self.get_unchecked_mut() }.push(part);
+        Ok(())
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_complete(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Result<Self::Output, Self::Error>> {
+        let this: &mut Vec<T> = unsafe { self.get_unchecked_mut() };
+        let out = std::mem::take(this);
+        Poll::Ready(Ok(out))
+    }
+}
+
+impl<T> MultipartWrite<T> for VecDeque<T> {
+    type Ret = ();
+    type Output = Self;
+    type Error = Never;
+
+    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn start_send(self: Pin<&mut Self>, part: T) -> Result<Self::Ret, Self::Error> {
+        unsafe { self.get_unchecked_mut() }.push_back(part);
+        Ok(())
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_complete(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Result<Self::Output, Self::Error>> {
+        let this: &mut VecDeque<T> = unsafe { self.get_unchecked_mut() };
+        let out = std::mem::take(this);
+        Poll::Ready(Ok(out))
     }
 }

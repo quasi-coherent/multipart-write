@@ -14,11 +14,11 @@ pub use and_then::AndThen;
 mod buffered;
 pub use buffered::Buffered;
 
-mod clear_with;
-pub use clear_with::ClearWith;
-
 mod complete;
 pub use complete::Complete;
+
+mod extend;
+pub use extend::{Extend, extend};
 
 mod fanout;
 pub use fanout::Fanout;
@@ -103,18 +103,6 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         Self: Sized,
     {
         Buffered::new(self, capacity.into().unwrap_or_default())
-    }
-
-    /// Computes the closure before returning the completed output.
-    ///
-    /// This can be used to reset some internal state of the writer in order to
-    /// prepare it to be written to again.
-    fn clear_with<Wr, T, F>(self, val: T, f: F) -> ClearWith<Self, T, F>
-    where
-        F: FnMut(&mut Self, &T),
-        Self: Sized + Unpin,
-    {
-        ClearWith::new(self, val, f)
     }
 
     /// A future that runs this writer to completion, returning the associated

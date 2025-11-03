@@ -23,7 +23,9 @@ write both return values.
 
 `Sink` is a useful API, but it is just that--a sink.  The end of a stream.
 It's useful to have the backpressure mechanism that `poll_ready`/`start_send` enables, and it's nice
-to have the flexibility that the shape of it provides in what kinds of things you can forward to it.
+to have the flexibility that the shape of it provides in what kinds of things you can forward to it,
+but it would be nice to use as an intermediate stage in a stream transformation, like a more powerful
+[`StreamExt::buffered`][buffered].
 
 The idea for `MultipartWrite` is to:
 1. Have the same desirable properies as `Sink`.
@@ -33,3 +35,4 @@ The idea for `MultipartWrite` is to:
 
 [`Sink`]: https://docs.rs/crate/futures-sink/0.3.31
 [example]: https://github.com/quasi-coherent/multipart-write/blob/master/examples/author.rs
+[buffered]: https://docs.rs/futures/0.3.31/futures/stream/trait.StreamExt.html#method.buffered

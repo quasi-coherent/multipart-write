@@ -8,6 +8,7 @@ description = "Sink-like interface for writing an object in parts"
 edition = "2024"
 authors = ["Daniel Donohue <d.michael.donohue@gmail.com>"]
 keywords = ["futures", "async", "sink"]
+rust-version = "1.85.1"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -15,7 +16,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []
-tokio = ["dep:tokio"]
 
 [dependencies]
 futures-core = "0.3.31"

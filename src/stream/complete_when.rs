@@ -16,8 +16,32 @@ pin_project_lite::pin_project! {
         #[pin]
         inner: TrySend<St, Wr>,
         f: F,
-        should_complete: bool,
-        is_terminated: bool,
+        state: State,
+        is_empty: bool,
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum State {
+    PollComplete,
+    FinalPollComplete,
+    #[default]
+    PollNext,
+    Terminating,
+    Terminated,
+}
+
+impl State {
+    fn should_complete(&self) -> bool {
+        *self == Self::PollComplete || self.is_last_complete()
+    }
+
+    fn is_last_complete(&self) -> bool {
+        *self == Self::FinalPollComplete
+    }
+
+    fn is_terminated(&self) -> bool {
+        *self == Self::Terminated
     }
 }
 
@@ -26,8 +50,8 @@ impl<St: Stream, Wr, F> CompleteWhen<St, Wr, F> {
         Self {
             inner: TrySend::new(inner, writer),
             f,
-            should_complete: false,
-            is_terminated: false,
+            state: State::PollNext,
+            is_empty: true,
         }
     }
 }
@@ -39,7 +63,7 @@ where
     F: FnMut(Wr::Ret) -> bool,
 {
     fn is_terminated(&self) -> bool {
-        self.inner.is_terminated() || self.is_terminated
+        self.inner.is_terminated() || self.state.is_terminated()
     }
 }
 
@@ -54,23 +78,43 @@ where
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
 
+        // Last call to this function was the final `poll_complete` because the
+        // source stream stopped producing.  Since we've produced the last output
+        // and there is no more to write, we stop producing.
+        if *this.state == State::Terminating {
+            *this.state = State::Terminated;
+            return Poll::Ready(None);
+        }
+
         loop {
-            if *this.should_complete {
+            if this.state.should_complete() {
                 let res = ready!(this.inner.as_mut().poll_complete(cx));
-                *this.should_complete = false;
+                if this.state.is_last_complete() {
+                    *this.state = State::Terminating;
+                } else {
+                    *this.state = State::PollNext;
+                }
+                *this.is_empty = true;
                 return Poll::Ready(Some(res));
             }
 
             match ready!(this.inner.as_mut().poll_next(cx)) {
                 Some(Ok(ret)) => {
                     if (this.f)(ret) {
-                        *this.should_complete = true;
+                        *this.state = State::PollComplete;
                     }
+                    *this.is_empty = false;
                 }
                 Some(Err(e)) => return Poll::Ready(Some(Err(e))),
                 None => {
-                    *this.is_terminated = true;
-                    return Poll::Ready(None);
+                    // If the very last thing we did was `poll_complete`, we
+                    // don't need to do it again since nothing has been written,
+                    // so shortcut and return `Poll::Ready(None)`.
+                    if *this.is_empty {
+                        *this.state = State::Terminated;
+                        return Poll::Ready(None);
+                    }
+                    *this.state = State::FinalPollComplete
                 }
             }
         }
@@ -87,8 +131,7 @@ where
         f.debug_struct("CompleteWhen")
             .field("inner", &self.inner)
             .field("f", &"FnMut(Wr::Ret) -> bool")
-            .field("should_complete", &self.should_complete)
-            .field("is_terminated", &self.is_terminated)
+            .field("state", &self.state)
             .finish()
     }
 }

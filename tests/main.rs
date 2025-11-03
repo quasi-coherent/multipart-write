@@ -1,5 +1,5 @@
+use futures_util::future;
 use futures_util::stream::{StreamExt as _, iter};
-use multipart_write::FusedMultipartWrite;
 use multipart_write::prelude::*;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -8,7 +8,6 @@ use std::task::{Context, Poll};
 struct TestWriter {
     inner: Vec<usize>,
     multiplier: usize,
-    capacity: usize,
 }
 
 impl Default for TestWriter {
@@ -16,7 +15,6 @@ impl Default for TestWriter {
         Self {
             inner: Vec::new(),
             multiplier: 1,
-            capacity: usize::MAX,
         }
     }
 }
@@ -25,12 +23,8 @@ impl TestWriter {
     fn new(multiplier: usize) -> Self {
         Self {
             multiplier,
-            ..Default::default()
+            inner: Vec::new(),
         }
-    }
-
-    fn capacity(self, capacity: usize) -> Self {
-        Self { capacity, ..self }
     }
 }
 
@@ -58,12 +52,6 @@ impl MultipartWrite<usize> for TestWriter {
         _cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>> {
         Poll::Ready(Ok(std::mem::take(&mut self.inner)))
-    }
-}
-
-impl FusedMultipartWrite<usize> for TestWriter {
-    fn is_terminated(&self) -> bool {
-        self.inner.len() >= self.capacity
     }
 }
 
@@ -114,21 +102,32 @@ async fn writer_with() {
 }
 
 #[tokio::test]
-async fn feed_multipart_write_stream() {
-    let writer = TestWriter::default().capacity(100);
-    let mut outputs = iter(1..=10)
+async fn complete_when_stream() {
+    let writer = TestWriter::default();
+    let mut outputs = iter(1..=12)
         .complete_when(writer, |ret| ret % 5 == 0)
+        .filter_map(|res| future::ready(res.ok()))
         .collect::<Vec<_>>()
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()
-        .unwrap();
-    assert_eq!(outputs.len(), 2);
+        .await;
+    assert_eq!(outputs.len(), 3);
 
+    let out3 = outputs.pop().unwrap();
     let out2 = outputs.pop().unwrap();
     let out1 = outputs.pop().unwrap();
     assert_eq!(out1, vec![1, 2, 3, 4, 5]);
     assert_eq!(out2, vec![6, 7, 8, 9, 10]);
+    assert_eq!(out3, vec![11, 12]);
+}
+
+#[tokio::test]
+async fn skip_last_complete_if_empty() {
+    let writer = TestWriter::default();
+    let outputs = iter(1..=10)
+        .complete_when(writer, |ret| ret % 5 == 0)
+        .filter_map(|res| future::ready(res.ok()))
+        .collect::<Vec<_>>()
+        .await;
+    assert_eq!(outputs.len(), 2);
 }
 
 #[tokio::test]
