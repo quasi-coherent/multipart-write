@@ -24,7 +24,7 @@ write both return values.
 `Sink` is a useful API, but it is just that: a sink, the end of a stream.
 It's valuable to have the backpressure mechanism that `poll_ready` combined with `start_send` enables,
 and it's nice to have the flexibility that the shape of `Sink` provides in what kinds of values you can
-send with it.  Sort of like a more capable [`StreamExt::buffered`].
+send with it.
 
 The idea for `MultipartWrite` is to:
 1. Have those same desirable properies: backpressure and generic input type.
