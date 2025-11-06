@@ -5,7 +5,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 pin_project_lite::pin_project! {
-    /// The writer returned by [`io_write`](super::io_write).
+    /// The writer returned by [`io_writer`](super::io_writer).
     #[derive(Debug, Default)]
     pub struct MultiIoWriter<W: Write> {
         inner: W,

@@ -8,12 +8,12 @@ use tokio::io::AsyncWrite;
 const DEFAULT_BUF_SIZE: usize = 8 * 1024;
 
 /// Constructs a `MultipartWrite` from a `tokio::io::AsyncWrite`.
-pub fn async_write<W: AsyncWrite + Unpin + Default>(write: W) -> MultiAsyncWriter<W> {
+pub fn async_writer<W: AsyncWrite + Unpin + Default>(write: W) -> MultiAsyncWriter<W> {
     MultiAsyncWriter::new(write)
 }
 
 pin_project_lite::pin_project! {
-    /// The writer returned by [`async_write`](self::async_write).
+    /// The writer returned by [`async_writer`](self::async_writer).
     #[derive(Debug, Default)]
     pub struct MultiAsyncWriter<W: AsyncWrite> {
         #[pin]

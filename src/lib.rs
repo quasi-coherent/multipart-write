@@ -10,17 +10,19 @@
 //!
 //! # Motivation
 //!
-//! `Sink` is a useful API, but it is just that--a sink.  The end of a stream.
-//! It's useful to have the backpressure mechanism that `poll_ready`/`start_send`
-//! enables, and it's nice to have the flexibility that the shape of it provides
-//! in what kinds of things you can forward to it.
+//! `Sink` is a useful API, but it is just that: a sink, the end of a stream.
+//!
+//! It's valuable to have the backpressure mechanism that `poll_ready` combined
+//! with `start_send` enables, and it's nice to have the flexibility that the
+//! shape of `Sink` provides in what kinds of values you can send with it.
 //!
 //! The idea for `MultipartWrite` is to:
-//! 1. Have the same desirable properies as `Sink`.
-//! 2. Be able to be inserted at more locations in a stream computation.
-//! 3. Be useful in more cases by having a value returned when starting a write.
-//! 4. Be able to transform a stream into another stream, which is really just
-//!    a more specific phrasing of 3.
+//! 1. Have those same desirable properies: backpressure and generic input type.
+//! 2. Be able to be inserted earlier in a stream computation.
+//! 3. Replace `Sink` when the use case would need a value returned by sending to
+//!    it or closing it.
+//! 4. Transform a stream by writing it in parts, which is somewhat of a specific
+//!    rephrasing of the second and third points.
 //!
 //! [`Sink`]: https://docs.rs/crate/futures-sink/0.3.31
 //! [example]: https://github.com/quasi-coherent/multipart-write/blob/master/examples/author.rs

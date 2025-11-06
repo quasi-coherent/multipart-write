@@ -102,10 +102,10 @@ async fn writer_with() {
 }
 
 #[tokio::test]
-async fn complete_when_stream() {
+async fn write_until_stream() {
     let writer = TestWriter::default();
     let mut outputs = iter(1..=12)
-        .complete_when(writer, |ret| ret % 5 == 0)
+        .write_until(writer, |ret| ret % 5 == 0)
         .filter_map(|res| future::ready(res.ok()))
         .collect::<Vec<_>>()
         .await;
@@ -123,7 +123,7 @@ async fn complete_when_stream() {
 async fn skip_last_complete_if_empty() {
     let writer = TestWriter::default();
     let outputs = iter(1..=10)
-        .complete_when(writer, |ret| ret % 5 == 0)
+        .write_until(writer, |ret| ret % 5 == 0)
         .filter_map(|res| future::ready(res.ok()))
         .collect::<Vec<_>>()
         .await;
@@ -136,7 +136,7 @@ async fn write_complete_stream() {
         acc += &n.to_string();
         acc
     });
-    let (acc, out) = iter(1..=5).collect_complete(writer).await.unwrap();
+    let (acc, out) = iter(1..=5).collect_writer(writer).await.unwrap();
     assert_eq!(acc, "12345".to_string());
     assert_eq!(out, vec![1, 2, 3, 4, 5]);
 }

@@ -75,6 +75,9 @@ where
         loop {
             if this.buffered.is_some() {
                 loop {
+                    // Poll the inner writer until ready in a loop because
+                    // `start_send` has to happen in the same call as getting a
+                    // `Poll::Ready(Ok(()))` from the writer.
                     match this.writer.as_mut().poll_ready(cx) {
                         Poll::Ready(Ok(())) => break,
                         Poll::Ready(Err(e)) => return Poll::Ready(Some(Err(e))),
@@ -93,6 +96,8 @@ where
             }
 
             let Some(st) = this.stream.as_mut().as_pin_mut() else {
+                // Nothing more to write since the stream is not producing and we
+                // have no buffered items to send.
                 ready!(this.writer.as_mut().poll_flush(cx))?;
                 *this.is_terminated = true;
                 return Poll::Ready(None);

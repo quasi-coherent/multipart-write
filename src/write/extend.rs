@@ -1,7 +1,7 @@
 use crate::MultipartWrite;
 
 use std::fmt::{self, Debug, Formatter};
-use std::io::{Error as IoError, ErrorKind};
+use std::io::Error as IoError;
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -47,7 +47,7 @@ where
 
     fn start_send(mut self: Pin<&mut Self>, part: A) -> Result<Self::Ret, Self::Error> {
         let Some(ext) = self.inner.as_mut() else {
-            return Err(IoError::new(ErrorKind::Other, "unset"));
+            return Err(IoError::other("unset"));
         };
         ext.extend([part]);
         Ok(())
@@ -63,7 +63,7 @@ where
     ) -> Poll<Result<Self::Output, Self::Error>> {
         let out = self.inner.take();
         if out.is_none() {
-            return Poll::Ready(Err(IoError::new(ErrorKind::Other, "unset")));
+            return Poll::Ready(Err(IoError::other("unset")));
         }
         Poll::Ready(Ok(out.unwrap()))
     }

@@ -8,11 +8,11 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 pin_project_lite::pin_project! {
-    /// Future for [`collect_complete`].
+    /// Future for [`collect_writer`].
     ///
-    /// [`collect_complete`]: super::MultipartStreamExt::collect_complete
+    /// [`collect_writer`]: super::MultipartStreamExt::collect_writer
     #[must_use = "futures do nothing unless polled"]
-    pub struct CollectComplete<St: Stream, Wr> {
+    pub struct CollectWriter<St: Stream, Wr> {
         #[pin]
         writer: Wr,
         #[pin]
@@ -22,7 +22,7 @@ pin_project_lite::pin_project! {
     }
 }
 
-impl<St: Stream, Wr> CollectComplete<St, Wr> {
+impl<St: Stream, Wr> CollectWriter<St, Wr> {
     pub(super) fn new(stream: St, writer: Wr) -> Self {
         Self {
             writer,
@@ -33,7 +33,7 @@ impl<St: Stream, Wr> CollectComplete<St, Wr> {
     }
 }
 
-impl<St, Wr> FusedFuture for CollectComplete<St, Wr>
+impl<St, Wr> FusedFuture for CollectWriter<St, Wr>
 where
     St: Stream,
     Wr: FusedMultipartWrite<St::Item>,
@@ -43,7 +43,7 @@ where
     }
 }
 
-impl<St, Wr> Future for CollectComplete<St, Wr>
+impl<St, Wr> Future for CollectWriter<St, Wr>
 where
     St: Stream,
     Wr: MultipartWrite<St::Item>,
@@ -73,7 +73,6 @@ where
             }
 
             let Some(st) = this.stream.as_mut().as_pin_mut() else {
-                ready!(this.writer.as_mut().poll_flush(cx))?;
                 let output = ready!(this.writer.as_mut().poll_complete(cx));
                 *this.is_terminated = true;
                 return Poll::Ready(output);
@@ -87,14 +86,14 @@ where
     }
 }
 
-impl<St, Wr> Debug for CollectComplete<St, Wr>
+impl<St, Wr> Debug for CollectWriter<St, Wr>
 where
     St: Stream + Debug,
     St::Item: Debug,
     Wr: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("CollectComplete")
+        f.debug_struct("CollectWriter")
             .field("writer", &self.writer)
             .field("stream", &self.stream)
             .field("buffered", &self.buffered)

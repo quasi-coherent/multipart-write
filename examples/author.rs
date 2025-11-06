@@ -1,4 +1,3 @@
-#![allow(unused)]
 //! This example centers on an `Author`.
 //!
 //! The author writes books.  The books are created by writing lines to a page
@@ -22,21 +21,21 @@ const TOTAL_LINES: usize = 625;
 #[tokio::main]
 async fn main() -> Result<(), String> {
     let short_story = Narrative::stream(TOTAL_LINES)
-        .collect_complete(Author::default())
+        .collect_writer(Author::default())
         .await
         .unwrap();
     println!("{short_story}");
     println!("=========================");
 
     let short_story_reversed = Narrative::stream(TOTAL_LINES)
-        .collect_complete(Author::default().reverse())
+        .collect_writer(Author::default().reverse())
         .await
         .unwrap();
     println!("{short_story_reversed}");
     println!("=========================");
 
     let books: Vec<Book> = Narrative::stream(TOTAL_LINES)
-        .complete_when(Author::default(), |book_state| {
+        .write_until(Author::default(), |book_state| {
             book_state.page_number() >= 25
         })
         .filter_map(|res| future::ready(res.ok()))
@@ -46,7 +45,7 @@ async fn main() -> Result<(), String> {
     println!("=========================");
 
     let french_books: Vec<Book> = Narrative::stream(TOTAL_LINES)
-        .complete_when(Author::default().into_french(), |book_state| {
+        .write_until(Author::default().into_french(), |book_state| {
             book_state.page_number() >= 25
         })
         .filter_map(|res| future::ready(res.ok()))

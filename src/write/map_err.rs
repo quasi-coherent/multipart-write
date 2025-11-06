@@ -19,6 +19,11 @@ impl<Wr, F> MapErr<Wr, F> {
         Self { writer, f }
     }
 
+    /// Consumes `MapErr`, returning the underlying writer.
+    pub fn into_inner(self) -> Wr {
+        self.writer
+    }
+
     /// Acquires a reference to the underlying writer.
     pub fn get_ref(&self) -> &Wr {
         &self.writer

@@ -50,6 +50,9 @@ pub use returning::Returning;
 mod send_part;
 pub use send_part::SendPart;
 
+mod then;
+pub use then::Then;
+
 mod with;
 pub use with::With;
 
@@ -254,6 +257,18 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         Self: Unpin,
     {
         SendPart::new(self, part)
+    }
+
+    /// Chain an asynchronous computation on the result of polling the writer for
+    /// completion.
+    fn then<T, E, Fut, F>(self, f: F) -> Then<Self, Fut, F>
+    where
+        F: FnMut(Result<Self::Output, Self::Error>) -> Fut,
+        Fut: Future<Output = Result<T, E>>,
+        E: From<Self::Error>,
+        Self: Sized,
+    {
+        Then::new(self, f)
     }
 
     /// Provide a part to this writer in the output of a future.

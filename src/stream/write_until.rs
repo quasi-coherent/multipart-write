@@ -10,9 +10,9 @@ use std::task::{Context, Poll};
 pin_project_lite::pin_project! {
     /// Stream for [`complete_when`].
     ///
-    /// [`complete_when`]: super::MultipartStreamExt::complete_when
+    /// [`write_until`]: super::MultipartStreamExt::write_until
     #[must_use = "futures do nothing unless polled"]
-    pub struct CompleteWhen<St: Stream, Wr, F> {
+    pub struct WriteUntil<St: Stream, Wr, F> {
         #[pin]
         inner: TrySend<St, Wr>,
         f: F,
@@ -32,20 +32,20 @@ enum State {
 }
 
 impl State {
-    fn should_complete(&self) -> bool {
-        *self == Self::PollComplete || self.is_last_complete()
+    fn should_complete(self) -> bool {
+        self == Self::PollComplete || self.is_last_complete()
     }
 
-    fn is_last_complete(&self) -> bool {
-        *self == Self::FinalPollComplete
+    fn is_last_complete(self) -> bool {
+        self == Self::FinalPollComplete
     }
 
-    fn is_terminated(&self) -> bool {
-        *self == Self::Terminated
+    fn is_terminated(self) -> bool {
+        self == Self::Terminated
     }
 }
 
-impl<St: Stream, Wr, F> CompleteWhen<St, Wr, F> {
+impl<St: Stream, Wr, F> WriteUntil<St, Wr, F> {
     pub(super) fn new(inner: St, writer: Wr, f: F) -> Self {
         Self {
             inner: TrySend::new(inner, writer),
@@ -56,7 +56,7 @@ impl<St: Stream, Wr, F> CompleteWhen<St, Wr, F> {
     }
 }
 
-impl<St, Wr, F> FusedStream for CompleteWhen<St, Wr, F>
+impl<St, Wr, F> FusedStream for WriteUntil<St, Wr, F>
 where
     St: Stream,
     Wr: FusedMultipartWrite<St::Item>,
@@ -67,7 +67,7 @@ where
     }
 }
 
-impl<St, Wr, F> Stream for CompleteWhen<St, Wr, F>
+impl<St, Wr, F> Stream for WriteUntil<St, Wr, F>
 where
     St: Stream,
     Wr: MultipartWrite<St::Item>,
@@ -114,24 +114,25 @@ where
                         *this.state = State::Terminated;
                         return Poll::Ready(None);
                     }
-                    *this.state = State::FinalPollComplete
+                    *this.state = State::FinalPollComplete;
                 }
             }
         }
     }
 }
 
-impl<St: Stream, Wr, F> Debug for CompleteWhen<St, Wr, F>
+impl<St: Stream, Wr, F> Debug for WriteUntil<St, Wr, F>
 where
     St: Debug,
     St::Item: Debug,
     Wr: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("CompleteWhen")
+        f.debug_struct("WriteUntil")
             .field("inner", &self.inner)
             .field("f", &"FnMut(Wr::Ret) -> bool")
             .field("state", &self.state)
+            .field("is_empty", &self.is_empty)
             .finish()
     }
 }
