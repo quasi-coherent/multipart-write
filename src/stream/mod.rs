@@ -30,8 +30,9 @@ pub trait MultipartStreamExt: Stream {
     /// Writes the items of this stream to a `MultipartWrite`, completing the
     /// write when the closure returns true.
     ///
-    /// The output type of `Wr` is expected to be an option and the stream is
-    /// ended if the inner writer's output is `None`.
+    /// The output type of `Wr` must be some `Option<T>`.  In case polling the
+    /// writer for completion produces `None`, the stream is ended.  Otherwise,
+    /// the next item in the stream is the unwrapped `T`.
     fn assembled<Wr, F>(self, writer: Wr, f: F) -> Assembled<Self, Wr, F>
     where
         Wr: MultipartWrite<Self::Item>,

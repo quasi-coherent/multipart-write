@@ -2,11 +2,11 @@
 //!
 //! This module contains the trait [`MultipartWriteExt`], which provides adapters
 //! for chaining and composing `MultipartWrite`rs.
+use crate::{BoxMultipartWrite, LocalBoxMultipartWrite, MultipartWrite};
+
 use futures_core::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-
-pub use crate::{BoxMultipartWrite, LocalBoxMultipartWrite, MultipartWrite};
 
 mod and_then;
 pub use and_then::AndThen;
