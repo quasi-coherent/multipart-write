@@ -6,49 +6,38 @@ use crate::MultipartWrite;
 
 use futures_core::stream::Stream;
 
-mod collect_writer;
-pub use collect_writer::CollectWriter;
+mod assemble;
+pub use assemble::Assemble;
 
-mod write_until;
-pub use write_until::WriteUntil;
-
-mod try_send;
-pub use try_send::TrySend;
+mod assembled;
+pub use assembled::Assembled;
 
 impl<St: Stream> MultipartStreamExt for St {}
 
 /// An extension trait for `Stream`s that provides combinators to use with
 /// `MultipartWrite`rs.
 pub trait MultipartStreamExt: Stream {
-    /// Collects a stream by writing to a `MultipartWrite`, returning the
-    /// result of completing the write as a future.
-    fn collect_writer<Wr>(self, writer: Wr) -> CollectWriter<Self, Wr>
+    /// Collects a stream by writing to a `MultipartWrite`, returning the result
+    /// of completing the write and assembling the parts in a future.
+    fn assemble<Wr>(self, writer: Wr) -> Assemble<Self, Wr>
     where
         Wr: MultipartWrite<Self::Item>,
         Self: Sized,
     {
-        CollectWriter::new(self, writer)
+        Assemble::new(self, writer)
     }
 
-    /// Call `start_send` on the provided writer with the items of this stream,
-    /// producing a stream of results in the return value `Wr::Ret`.
-    fn try_send<Wr>(self, writer: Wr) -> TrySend<Self, Wr>
+    /// Writes the items of this stream to a `MultipartWrite`, completing the
+    /// write when the closure returns true.
+    ///
+    /// The output type of `Wr` is expected to be an option and the stream is
+    /// ended if the inner writer's output is `None`.
+    fn assembled<Wr, F>(self, writer: Wr, f: F) -> Assembled<Self, Wr, F>
     where
         Wr: MultipartWrite<Self::Item>,
+        F: FnMut(&Wr::Ret) -> bool,
         Self: Sized,
     {
-        TrySend::new(self, writer)
-    }
-
-    /// Sends items of this stream to the writer, yielding the completed written
-    /// value as the next item in the resulting stream when the provided closure
-    /// returns `true`.
-    fn write_until<Wr, F>(self, writer: Wr, f: F) -> WriteUntil<Self, Wr, F>
-    where
-        Wr: MultipartWrite<Self::Item>,
-        F: FnMut(Wr::Ret) -> bool,
-        Self: Sized,
-    {
-        WriteUntil::new(self, writer, f)
+        Assembled::new(self, writer, f)
     }
 }

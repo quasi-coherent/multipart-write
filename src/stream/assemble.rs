@@ -1,4 +1,4 @@
-use crate::{FusedMultipartWrite, MultipartWrite};
+use crate::MultipartWrite;
 
 use futures_core::future::{FusedFuture, Future};
 use futures_core::ready;
@@ -8,11 +8,11 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 pin_project_lite::pin_project! {
-    /// Future for [`collect_writer`].
+    /// Future for [`assemble`].
     ///
-    /// [`collect_writer`]: super::MultipartStreamExt::collect_writer
+    /// [`assemble`]: super::MultipartStreamExt::assemble
     #[must_use = "futures do nothing unless polled"]
-    pub struct CollectWriter<St: Stream, Wr> {
+    pub struct Assemble<St: Stream, Wr> {
         #[pin]
         writer: Wr,
         #[pin]
@@ -22,7 +22,7 @@ pin_project_lite::pin_project! {
     }
 }
 
-impl<St: Stream, Wr> CollectWriter<St, Wr> {
+impl<St: Stream, Wr> Assemble<St, Wr> {
     pub(super) fn new(stream: St, writer: Wr) -> Self {
         Self {
             writer,
@@ -33,17 +33,17 @@ impl<St: Stream, Wr> CollectWriter<St, Wr> {
     }
 }
 
-impl<St, Wr> FusedFuture for CollectWriter<St, Wr>
+impl<St, Wr> FusedFuture for Assemble<St, Wr>
 where
     St: Stream,
-    Wr: FusedMultipartWrite<St::Item>,
+    Wr: MultipartWrite<St::Item>,
 {
     fn is_terminated(&self) -> bool {
-        self.writer.is_terminated() || self.is_terminated
+        self.is_terminated
     }
 }
 
-impl<St, Wr> Future for CollectWriter<St, Wr>
+impl<St, Wr> Future for Assemble<St, Wr>
 where
     St: Stream,
     Wr: MultipartWrite<St::Item>,
@@ -55,21 +55,20 @@ where
 
         loop {
             if this.buffered.is_some() {
-                loop {
-                    match this.writer.as_mut().poll_ready(cx) {
-                        Poll::Ready(Ok(())) => break,
-                        Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
-                        Poll::Pending => match this.writer.as_mut().poll_flush(cx)? {
-                            Poll::Pending => return Poll::Pending,
-                            Poll::Ready(()) => {}
-                        },
+                // Need poll_ready to return ready and immediately send.
+                // If poll_ready is not ready, poll_flush until it is.
+                if this.writer.as_mut().poll_ready(cx)?.is_ready() {
+                    let _ = this
+                        .writer
+                        .as_mut()
+                        .start_send(this.buffered.take().unwrap())?;
+                } else {
+                    match this.writer.as_mut().poll_flush(cx)? {
+                        // Flushed, so back to the top to `poll_ready` again.
+                        Poll::Ready(()) => continue,
+                        Poll::Pending => return Poll::Pending,
                     }
                 }
-
-                let _ = this
-                    .writer
-                    .as_mut()
-                    .start_send(this.buffered.take().unwrap())?;
             }
 
             let Some(st) = this.stream.as_mut().as_pin_mut() else {
@@ -86,14 +85,14 @@ where
     }
 }
 
-impl<St, Wr> Debug for CollectWriter<St, Wr>
+impl<St, Wr> Debug for Assemble<St, Wr>
 where
     St: Stream + Debug,
     St::Item: Debug,
     Wr: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("CollectWriter")
+        f.debug_struct("Assemble")
             .field("writer", &self.writer)
             .field("stream", &self.stream)
             .field("buffered", &self.buffered)

@@ -5,21 +5,21 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 pin_project_lite::pin_project! {
-    /// `MultipartWrite` for [`returning`](super::MultipartWriteExt::returning).
+    /// `MultipartWrite` for [`map_ret`](super::MultipartWriteExt::map_ret).
     #[must_use = "futures do nothing unless polled"]
-    pub struct Returning<Wr, F> {
+    pub struct MapRet<Wr, F> {
         #[pin]
         writer: Wr,
         f: F,
     }
 }
 
-impl<Wr, F> Returning<Wr, F> {
+impl<Wr, F> MapRet<Wr, F> {
     pub(super) fn new(writer: Wr, f: F) -> Self {
         Self { writer, f }
     }
 
-    /// Consumes `Returning`, returning the underlying writer.
+    /// Consumes `MapRet`, returning the underlying writer.
     pub fn into_inner(self) -> Wr {
         self.writer
     }
@@ -44,7 +44,7 @@ impl<Wr, F> Returning<Wr, F> {
     }
 }
 
-impl<U, Wr, F, Part> FusedMultipartWrite<Part> for Returning<Wr, F>
+impl<U, Wr, F, Part> FusedMultipartWrite<Part> for MapRet<Wr, F>
 where
     Wr: FusedMultipartWrite<Part>,
     F: FnMut(Wr::Ret) -> U,
@@ -54,7 +54,7 @@ where
     }
 }
 
-impl<U, Wr, F, Part> MultipartWrite<Part> for Returning<Wr, F>
+impl<U, Wr, F, Part> MultipartWrite<Part> for MapRet<Wr, F>
 where
     Wr: MultipartWrite<Part>,
     F: FnMut(Wr::Ret) -> U,
@@ -87,9 +87,9 @@ where
     }
 }
 
-impl<Wr: Debug, F> Debug for Returning<Wr, F> {
+impl<Wr: Debug, F> Debug for MapRet<Wr, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Returning")
+        f.debug_struct("MapRet")
             .field("writer", &self.writer)
             .field("f", &"F")
             .finish()

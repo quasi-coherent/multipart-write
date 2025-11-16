@@ -1,6 +1,7 @@
 use futures_util::future;
 use futures_util::stream::{StreamExt as _, iter};
-use multipart_write::prelude::*;
+use multipart_write::stream::MultipartStreamExt as _;
+use multipart_write::{FusedMultipartWrite, MultipartWrite, MultipartWriteExt as _};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -55,6 +56,12 @@ impl MultipartWrite<usize> for TestWriter {
     }
 }
 
+impl FusedMultipartWrite<usize> for TestWriter {
+    fn is_terminated(&self) -> bool {
+        false
+    }
+}
+
 #[tokio::test]
 async fn trait_futures() {
     let mut writer = TestWriter::default();
@@ -87,10 +94,7 @@ async fn writer_map() {
 #[tokio::test]
 async fn writer_with() {
     let mut writer = TestWriter::new(2)
-        .with(|x: String| async move {
-            let y: usize = x.len();
-            Ok::<usize, String>(y)
-        })
+        .with(|x: String| async move { Ok::<usize, String>(x.len()) })
         .boxed();
     writer.send_part("abc".to_string()).await.unwrap();
     writer.send_part("d".to_string()).await.unwrap();
@@ -102,10 +106,10 @@ async fn writer_with() {
 }
 
 #[tokio::test]
-async fn write_until_stream() {
-    let writer = TestWriter::default();
+async fn assembled_stream() {
+    let writer = TestWriter::default().map_ok(Some);
     let mut outputs = iter(1..=12)
-        .write_until(writer, |ret| ret % 5 == 0)
+        .assembled(writer, |ret| ret % 5 == 0)
         .filter_map(|res| future::ready(res.ok()))
         .collect::<Vec<_>>()
         .await;
@@ -121,9 +125,9 @@ async fn write_until_stream() {
 
 #[tokio::test]
 async fn skip_last_complete_if_empty() {
-    let writer = TestWriter::default();
+    let writer = TestWriter::default().map_ok(Some);
     let outputs = iter(1..=10)
-        .write_until(writer, |ret| ret % 5 == 0)
+        .assembled(writer, |ret| ret % 5 == 0)
         .filter_map(|res| future::ready(res.ok()))
         .collect::<Vec<_>>()
         .await;
@@ -136,7 +140,7 @@ async fn write_complete_stream() {
         acc += &n.to_string();
         acc
     });
-    let (acc, out) = iter(1..=5).collect_writer(writer).await.unwrap();
+    let (acc, out) = iter(1..=5).assemble(writer).await.unwrap();
     assert_eq!(acc, "12345".to_string());
     assert_eq!(out, vec![1, 2, 3, 4, 5]);
 }

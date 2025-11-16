@@ -34,15 +34,14 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 pub mod io;
-pub mod stream;
-pub mod write;
 
-/// A prelude for this crate.
-pub mod prelude {
-    pub use super::stream::{self, MultipartStreamExt as _};
-    pub use super::write::{self, MultipartWriteExt as _};
-    pub use super::{FusedMultipartWrite, MultipartWrite};
-}
+pub mod stream;
+#[doc(inline)]
+pub use stream::MultipartStreamExt;
+
+pub mod write;
+#[doc(inline)]
+pub use write::MultipartWriteExt;
 
 /// `MultipartWrite` is a `Sink`-like interface for asynchronously writing an
 /// object in parts.

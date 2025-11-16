@@ -38,14 +38,17 @@ pub use fold_ret::FoldRet;
 mod flush;
 pub use flush::Flush;
 
+mod fuse;
+pub use fuse::Fuse;
+
 mod map_err;
 pub use map_err::MapErr;
 
+mod map_ret;
+pub use map_ret::MapRet;
+
 mod map_ok;
 pub use map_ok::MapOk;
-
-mod returning;
-pub use returning::Returning;
 
 mod send_part;
 pub use send_part::SendPart;
@@ -132,9 +135,9 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// A future that completes after the given part has been received by the
     /// writer.
     ///
-    /// Unlike `write`, the returned future does not flush the writer.  It is the
-    /// caller's responsibility to ensure all pending items are processed, which
-    /// can be done with `flush` or `complete`.
+    /// Unlike `send_part`, the returned future does not flush the writer.  It is
+    /// the caller's responsibility to ensure all pending items are processed,
+    /// which can be done with `flush` or `complete`.
     fn feed(&mut self, part: Part) -> Feed<'_, Self, Part>
     where
         Self: Unpin,
@@ -187,14 +190,17 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         FoldRet::new(self, id, f)
     }
 
-    /// Map this writer's output type to a different type, returning a new
-    /// multipart writer with the given output type.
-    fn map_ok<U, F>(self, f: F) -> MapOk<Self, F>
+    /// Returns a new writer that fuses according to the provided closure.
+    ///
+    /// The resulting writer wraps both `Self::Ret` and `Self::Output` in an
+    /// `Option` and is guaranted to both return and output `Ok(None)` when
+    /// called after becoming fused.
+    fn fuse<F>(self, f: F) -> Fuse<Self, F>
     where
-        F: FnMut(Self::Output) -> U,
+        F: FnMut(&Self::Output) -> bool,
         Self: Sized,
     {
-        MapOk::new(self, f)
+        Fuse::new(self, f)
     }
 
     /// Map this writer's error type to a different value, returning a new
@@ -207,14 +213,24 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         MapErr::new(self, f)
     }
 
+    /// Map this writer's output type to a different type, returning a new
+    /// multipart writer with the given output type.
+    fn map_ok<U, F>(self, f: F) -> MapOk<Self, F>
+    where
+        F: FnMut(Self::Output) -> U,
+        Self: Sized,
+    {
+        MapOk::new(self, f)
+    }
+
     /// Map this writer's return type to a different value, returning a new
     /// multipart writer with the given return type.
-    fn returning<U, F>(self, f: F) -> Returning<Self, F>
+    fn map_ret<U, F>(self, f: F) -> MapRet<Self, F>
     where
         F: FnMut(Self::Ret) -> U,
         Self: Sized,
     {
-        Returning::new(self, f)
+        MapRet::new(self, f)
     }
 
     /// A convenience method for calling [`MultipartWrite::poll_ready`] on

@@ -9,7 +9,8 @@
 //! the completion of the writer be finishing the book.
 use futures_core::ready;
 use futures_util::{Future, Stream, StreamExt, future, stream};
-use multipart_write::prelude::*;
+use multipart_write::stream::MultipartStreamExt as _;
+use multipart_write::{FusedMultipartWrite, MultipartWrite, MultipartWriteExt as _};
 use std::collections::BTreeMap;
 use std::fmt::{self, Display, Formatter};
 use std::pin::Pin;
@@ -21,23 +22,21 @@ const TOTAL_LINES: usize = 625;
 #[tokio::main]
 async fn main() -> Result<(), String> {
     let short_story = Narrative::stream(TOTAL_LINES)
-        .collect_writer(Author::default())
+        .assemble(Author::default())
         .await
         .unwrap();
     println!("{short_story}");
     println!("=========================");
 
     let short_story_reversed = Narrative::stream(TOTAL_LINES)
-        .collect_writer(Author::default().reverse())
+        .assemble(Author::default().reverse())
         .await
         .unwrap();
     println!("{short_story_reversed}");
     println!("=========================");
 
     let books: Vec<Book> = Narrative::stream(TOTAL_LINES)
-        .write_until(Author::default(), |book_state| {
-            book_state.page_number() >= 25
-        })
+        .assembled(Author::default().map_ok(Some), |b| b.page_number() >= 25)
         .filter_map(|res| future::ready(res.ok()))
         .collect()
         .await;
@@ -45,8 +44,8 @@ async fn main() -> Result<(), String> {
     println!("=========================");
 
     let french_books: Vec<Book> = Narrative::stream(TOTAL_LINES)
-        .write_until(Author::default().into_french(), |book_state| {
-            book_state.page_number() >= 25
+        .assembled(Author::default().into_french().map_ok(Some), |b| {
+            b.page_number() >= 25
         })
         .filter_map(|res| future::ready(res.ok()))
         .collect()
@@ -290,6 +289,12 @@ impl Display for BookState {
             "current page: {}, total lines: {}",
             self.page_number.0, self.lines_written
         )
+    }
+}
+
+impl FusedMultipartWrite<String> for Author {
+    fn is_terminated(&self) -> bool {
+        false
     }
 }
 
