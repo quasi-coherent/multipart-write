@@ -44,12 +44,12 @@ where
 impl<Wr: ?Sized + MultipartWrite<Part> + Unpin, Part> Future for Feed<'_, Wr, Part> {
     type Output = Result<Wr::Ret, Wr::Error>;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.get_mut();
-        let mut writer = Pin::new(&mut this.writer);
-        ready!(writer.as_mut().poll_ready(cx))?;
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = &mut *self;
+
+        ready!(Pin::new(&mut this.writer).poll_ready(cx))?;
         let part = this.buffered.take().expect("polled Feed after completion");
-        let ret = writer.as_mut().start_send(part);
+        let ret = Pin::new(&mut this.writer).start_send(part);
         Poll::Ready(ret)
     }
 }

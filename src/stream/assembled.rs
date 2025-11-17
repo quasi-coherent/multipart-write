@@ -63,23 +63,20 @@ where
         loop {
             // Try to send anything in the buffer first.
             if this.buffered.is_some() {
-                if this.writer.as_mut().poll_ready(cx)?.is_ready() {
-                    let it = this.buffered.take().unwrap();
-                    let ret = this.writer.as_mut().start_send(it)?;
-                    *this.empty = false;
-                    // Check if we should complete according to `F`.
-                    if (this.f)(&ret) {
-                        // `false` since we don't have to shut down the stream
-                        // after this poll_complete.
-                        *this.state = State::PollComplete(false);
-                    } else {
-                        *this.state = State::PollNext;
-                    }
-                } else {
-                    // Writer isn't ready so poll_flush until it is.
-                    match this.writer.as_mut().poll_flush(cx)? {
-                        Poll::Ready(()) => continue,
-                        Poll::Pending => return Poll::Pending,
+                match this.writer.as_mut().poll_ready(cx)? {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(()) => {
+                        let it = this.buffered.take().unwrap();
+                        let ret = this.writer.as_mut().start_send(it)?;
+                        *this.empty = false;
+                        // Check if we should complete according to `F`.
+                        if (this.f)(&ret) {
+                            // false since we don't have to shut down the stream
+                            // after the `poll_complete`.
+                            *this.state = State::PollComplete(false);
+                        } else {
+                            *this.state = State::PollNext;
+                        }
                     }
                 }
             }
@@ -99,21 +96,19 @@ where
                     }
                 },
                 State::PollComplete(last) => {
-                    match ready!(this.writer.as_mut().poll_complete(cx))? {
-                        Some(out) => {
-                            if last {
-                                *this.state = State::Terminated;
-                            } else {
-                                *this.empty = true;
-                                *this.state = State::PollNext;
-                            }
-                            return Poll::Ready(Some(Ok(out)));
+                    if let Some(out) = ready!(this.writer.as_mut().poll_complete(cx))? {
+                        // Last iteration the stream produced nothing.
+                        if last {
+                            *this.state = State::Terminated;
+                        } else {
+                            *this.empty = true;
+                            *this.state = State::PollNext;
                         }
-                        _ => {
-                            // Inner writer is `None` now, so end the stream.
-                            *this.is_terminated = true;
-                            return Poll::Ready(None);
-                        }
+                        return Poll::Ready(Some(Ok(out)));
+                    } else {
+                        // Inner writer is `None` now, so end the stream.
+                        *this.is_terminated = true;
+                        return Poll::Ready(None);
                     }
                 }
                 State::Terminated => {

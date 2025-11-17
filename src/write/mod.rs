@@ -41,6 +41,9 @@ pub use flush::Flush;
 mod fuse;
 pub use fuse::Fuse;
 
+mod lift;
+pub use lift::Lift;
+
 mod map_err;
 pub use map_err::MapErr;
 
@@ -193,7 +196,7 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// Returns a new writer that fuses according to the provided closure.
     ///
     /// The resulting writer wraps both `Self::Ret` and `Self::Output` in an
-    /// `Option` and is guaranted to both return and output `Ok(None)` when
+    /// `Option` and is guaranted to both output and return `Ok(None)` when
     /// called after becoming fused.
     fn fuse<F>(self, f: F) -> Fuse<Self, F>
     where
@@ -201,6 +204,23 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         Self: Sized,
     {
         Fuse::new(self, f)
+    }
+
+    /// "Lift" the multipart writer `U` in front of this one.
+    ///
+    /// The result is a new multipart writer that writes parts for `U`, using the
+    /// output of `U` to source the parts to write to this writer, and resolving
+    /// to the output of this writer when polled to completion.
+    ///
+    /// In other words, it expresses this multipart writer as being built from
+    /// the parts of another multipart writer.
+    fn lift<U, T>(self, other: U) -> Lift<Self, U, Part>
+    where
+        U: MultipartWrite<T, Output = Part>,
+        Self: MultipartWrite<Part> + Sized,
+        Self::Error: From<U::Error>,
+    {
+        Lift::new(self, other)
     }
 
     /// Map this writer's error type to a different value, returning a new

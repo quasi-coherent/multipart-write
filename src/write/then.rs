@@ -75,17 +75,15 @@ where
     type Error = E;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        ready!(self.project().writer.poll_ready(cx))?;
-        Poll::Ready(Ok(()))
+        self.project().writer.poll_ready(cx).map_err(E::from)
     }
 
     fn start_send(self: Pin<&mut Self>, part: Part) -> Result<Self::Ret, Self::Error> {
-        Ok(self.project().writer.start_send(part)?)
+        self.project().writer.start_send(part).map_err(E::from)
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        ready!(self.project().writer.poll_flush(cx))?;
-        Poll::Ready(Ok(()))
+        self.project().writer.poll_flush(cx).map_err(E::from)
     }
 
     fn poll_complete(

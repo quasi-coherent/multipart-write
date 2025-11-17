@@ -55,19 +55,14 @@ where
 
         loop {
             if this.buffered.is_some() {
-                // Need poll_ready to return ready and immediately send.
-                // If poll_ready is not ready, poll_flush until it is.
-                if this.writer.as_mut().poll_ready(cx)?.is_ready() {
-                    let _ = this
-                        .writer
-                        .as_mut()
-                        .start_send(this.buffered.take().unwrap())?;
-                } else {
-                    match this.writer.as_mut().poll_flush(cx)? {
-                        // Flushed, so back to the top to `poll_ready` again.
-                        Poll::Ready(()) => continue,
-                        Poll::Pending => return Poll::Pending,
+                match this.writer.as_mut().poll_ready(cx)? {
+                    Poll::Ready(()) => {
+                        let _ = this
+                            .writer
+                            .as_mut()
+                            .start_send(this.buffered.take().unwrap())?;
                     }
+                    Poll::Pending => return Poll::Pending,
                 }
             }
 

@@ -61,31 +61,25 @@ impl<Wr, Part, Fut, F> With<Wr, Part, Fut, F> {
     {
         let mut this = self.project();
 
-        loop {
-            if this.buffered.is_some() {
-                // Check if the underlying sink is prepared for another item.
-                // If it is, we have to send it without yielding in between.
-                match this.writer.as_mut().poll_ready(cx)? {
-                    Poll::Ready(()) => {
-                        let _ = this.writer.start_send(this.buffered.take().unwrap())?;
-                    }
-                    Poll::Pending => match this.writer.as_mut().poll_flush(cx)? {
-                        Poll::Ready(()) => continue, // check `poll_ready` again
-                        Poll::Pending => return Poll::Pending,
-                    },
+        if this.buffered.is_some() {
+            match this.writer.as_mut().poll_ready(cx)? {
+                Poll::Ready(()) => {
+                    this.writer.start_send(this.buffered.take().unwrap())?;
                 }
+                Poll::Pending => return Poll::Pending,
             }
-            if let Some(fut) = this.future.as_mut().as_pin_mut() {
-                let part = ready!(fut.poll(cx))?;
-                *this.buffered = Some(part);
-                this.future.set(None);
-            }
-            return Poll::Ready(Ok(()));
         }
+        if let Some(fut) = this.future.as_mut().as_pin_mut() {
+            let part = ready!(fut.poll(cx))?;
+            *this.buffered = Some(part);
+            this.future.set(None);
+        }
+
+        Poll::Ready(Ok(()))
     }
 }
 
-impl<Wr, U, E, Part, Fut, F> FusedMultipartWrite<U> for With<Wr, Part, Fut, F>
+impl<U, E, Wr, Part, Fut, F> FusedMultipartWrite<U> for With<Wr, Part, Fut, F>
 where
     Wr: FusedMultipartWrite<Part>,
     F: FnMut(U) -> Fut,
@@ -97,7 +91,7 @@ where
     }
 }
 
-impl<Wr, U, E, Part, Fut, F> MultipartWrite<U> for With<Wr, Part, Fut, F>
+impl<U, E, Wr, Part, Fut, F> MultipartWrite<U> for With<Wr, Part, Fut, F>
 where
     Wr: MultipartWrite<Part>,
     F: FnMut(U) -> Fut,
@@ -110,8 +104,7 @@ where
 
     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         ready!(self.as_mut().poll(cx))?;
-        ready!(self.project().writer.poll_ready(cx)?);
-        Poll::Ready(Ok(()))
+        self.project().writer.poll_ready(cx).map_err(E::from)
     }
 
     fn start_send(self: Pin<&mut Self>, part: U) -> Result<Self::Ret, Self::Error> {

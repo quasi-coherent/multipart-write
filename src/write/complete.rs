@@ -1,4 +1,3 @@
-use crate::write::MultipartWriteExt;
 use crate::{FusedMultipartWrite, MultipartWrite};
 
 use futures_core::future::{FusedFuture, Future};
@@ -36,8 +35,7 @@ impl<Wr: ?Sized + FusedMultipartWrite<Part> + Unpin, Part> FusedFuture for Compl
 impl<Wr: ?Sized + MultipartWrite<Part> + Unpin, Part> Future for Complete<'_, Wr, Part> {
     type Output = Result<Wr::Output, Wr::Error>;
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        ready!(self.writer.poll_flush_unpin(cx))?;
-        let out = ready!(self.writer.poll_complete_unpin(cx));
+        let out = ready!(Pin::new(&mut self.writer).poll_complete(cx));
         self.is_terminated = true;
         Poll::Ready(out)
     }
