@@ -2,7 +2,7 @@
 //!
 //! This module contains the extension [`MultipartStreamExt`] that has adapters
 //! for composing `MultipartWrite` with streams.
-use crate::MultipartWrite;
+use crate::{FusedMultipartWrite, MultipartWrite};
 
 use futures_core::stream::Stream;
 
@@ -30,12 +30,12 @@ pub trait MultipartStreamExt: Stream {
     /// Writes the items of this stream to a `MultipartWrite`, completing the
     /// write when the closure returns true.
     ///
-    /// The output type of `Wr` must be some `Option<T>`.  In case polling the
-    /// writer for completion produces `None`, the stream is ended.  Otherwise,
-    /// the next item in the stream is the unwrapped `T`.
+    /// The result is a stream of the results of polling the writer to
+    /// completion.  If the inner writer becomes fused after producing an item,
+    /// the stream is ended early.
     fn assembled<Wr, F>(self, writer: Wr, f: F) -> Assembled<Self, Wr, F>
     where
-        Wr: MultipartWrite<Self::Item>,
+        Wr: FusedMultipartWrite<Self::Item>,
         F: FnMut(&Wr::Ret) -> bool,
         Self: Sized,
     {

@@ -1,4 +1,4 @@
-use crate::MultipartWrite;
+use crate::FusedMultipartWrite;
 
 use futures_core::ready;
 use futures_core::stream::{FusedStream, Stream};
@@ -38,10 +38,10 @@ impl<St: Stream, Wr, F> Assembled<St, Wr, F> {
     }
 }
 
-impl<St, Wr, T, F> FusedStream for Assembled<St, Wr, F>
+impl<St, Wr, F> FusedStream for Assembled<St, Wr, F>
 where
     St: Stream,
-    Wr: MultipartWrite<St::Item, Output = Option<T>>,
+    Wr: FusedMultipartWrite<St::Item>,
     F: FnMut(&Wr::Ret) -> bool,
 {
     fn is_terminated(&self) -> bool {
@@ -49,13 +49,13 @@ where
     }
 }
 
-impl<St, Wr, T, F> Stream for Assembled<St, Wr, F>
+impl<St, Wr, F> Stream for Assembled<St, Wr, F>
 where
     St: Stream,
-    Wr: MultipartWrite<St::Item, Output = Option<T>>,
+    Wr: FusedMultipartWrite<St::Item>,
     F: FnMut(&Wr::Ret) -> bool,
 {
-    type Item = Result<T, Wr::Error>;
+    type Item = Result<Wr::Output, Wr::Error>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
@@ -96,20 +96,19 @@ where
                     }
                 },
                 State::PollComplete(last) => {
-                    if let Some(out) = ready!(this.writer.as_mut().poll_complete(cx))? {
-                        // Last iteration the stream produced nothing.
-                        if last {
-                            *this.state = State::Terminated;
-                        } else {
-                            *this.empty = true;
-                            *this.state = State::PollNext;
-                        }
-                        return Poll::Ready(Some(Ok(out)));
+                    let out = ready!(this.writer.as_mut().poll_complete(cx));
+                    // Upstream stopped producing in the last iteration, or the
+                    // writer indicates through its `FusedMultipartWrite` impl
+                    // that it cannot be polled anymore, so set the state to
+                    // `Terminated` to immediately produce `None` and end the
+                    // stream the next time we are polled.
+                    if last || this.writer.is_terminated() {
+                        *this.state = State::Terminated;
                     } else {
-                        // Inner writer is `None` now, so end the stream.
-                        *this.is_terminated = true;
-                        return Poll::Ready(None);
+                        *this.empty = true;
+                        *this.state = State::PollNext;
                     }
+                    return Poll::Ready(Some(out));
                 }
                 State::Terminated => {
                     *this.is_terminated = true;
@@ -134,12 +133,13 @@ where
             .field("buffered", &self.buffered)
             .field("f", &"FnMut(&Wr::Ret) -> bool")
             .field("state", &self.state)
+            .field("empty", &self.empty)
             .field("is_terminated", &self.is_terminated)
             .finish()
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum State {
     PollNext,
     PollComplete(bool),

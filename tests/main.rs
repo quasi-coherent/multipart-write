@@ -107,7 +107,7 @@ async fn writer_with() {
 
 #[tokio::test]
 async fn assembled_stream() {
-    let writer = TestWriter::default().map_ok(Some);
+    let writer = TestWriter::default();
     let mut outputs = iter(1..=12)
         .assembled(writer, |ret| ret % 5 == 0)
         .filter_map(|res| future::ready(res.ok()))
@@ -125,7 +125,7 @@ async fn assembled_stream() {
 
 #[tokio::test]
 async fn skip_last_complete_if_empty() {
-    let writer = TestWriter::default().map_ok(Some);
+    let writer = TestWriter::default();
     let outputs = iter(1..=10)
         .assembled(writer, |ret| ret % 5 == 0)
         .filter_map(|res| future::ready(res.ok()))

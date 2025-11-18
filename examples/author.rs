@@ -36,7 +36,7 @@ async fn main() -> Result<(), String> {
     println!("=========================");
 
     let books: Vec<Book> = Narrative::stream(TOTAL_LINES)
-        .assembled(Author::default().map_ok(Some), |b| b.page_number() >= 25)
+        .assembled(Author::default(), |b| b.page_number() >= 25)
         .filter_map(|res| future::ready(res.ok()))
         .collect()
         .await;
@@ -44,9 +44,7 @@ async fn main() -> Result<(), String> {
     println!("=========================");
 
     let french_books: Vec<Book> = Narrative::stream(TOTAL_LINES)
-        .assembled(Author::default().into_french().map_ok(Some), |b| {
-            b.page_number() >= 25
-        })
+        .assembled(Author::default().into_french(), |b| b.page_number() >= 25)
         .filter_map(|res| future::ready(res.ok()))
         .collect()
         .await;
@@ -78,7 +76,7 @@ impl Author {
     /// the text of the book from English to a target language, for instance.
     fn into_french(
         self,
-    ) -> impl MultipartWrite<String, Ret = BookState, Output = Book, Error = String> {
+    ) -> impl FusedMultipartWrite<String, Ret = BookState, Output = Book, Error = String> {
         self.and_then(Translator::get_translation)
     }
 }
