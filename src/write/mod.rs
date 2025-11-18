@@ -53,6 +53,9 @@ pub use map_ret::MapRet;
 mod map_ok;
 pub use map_ok::MapOk;
 
+mod resolve;
+pub use resolve::{Resolve, resolve};
+
 mod send_part;
 pub use send_part::SendPart;
 
