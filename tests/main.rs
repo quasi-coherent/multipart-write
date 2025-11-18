@@ -9,6 +9,8 @@ use std::task::{Context, Poll};
 struct TestWriter {
     inner: Vec<usize>,
     multiplier: usize,
+    completed: usize,
+    max_completed: Option<usize>,
 }
 
 impl Default for TestWriter {
@@ -16,6 +18,8 @@ impl Default for TestWriter {
         Self {
             inner: Vec::new(),
             multiplier: 1,
+            completed: 0,
+            max_completed: None,
         }
     }
 }
@@ -25,7 +29,14 @@ impl TestWriter {
         Self {
             multiplier,
             inner: Vec::new(),
+            completed: 0,
+            max_completed: None,
         }
+    }
+
+    fn max_completed(mut self, max: usize) -> Self {
+        self.max_completed = Some(max);
+        self
     }
 }
 
@@ -52,13 +63,14 @@ impl MultipartWrite<usize> for TestWriter {
         mut self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>> {
+        self.completed += 1;
         Poll::Ready(Ok(std::mem::take(&mut self.inner)))
     }
 }
 
 impl FusedMultipartWrite<usize> for TestWriter {
     fn is_terminated(&self) -> bool {
-        false
+        self.max_completed.is_some_and(|n| n <= self.completed)
     }
 }
 
@@ -107,7 +119,7 @@ async fn writer_with() {
 
 #[tokio::test]
 async fn assembled_stream() {
-    let writer = TestWriter::default().map_ok(Some);
+    let writer = TestWriter::default();
     let mut outputs = iter(1..=12)
         .assembled(writer, |ret| ret % 5 == 0)
         .filter_map(|res| future::ready(res.ok()))
@@ -124,8 +136,19 @@ async fn assembled_stream() {
 }
 
 #[tokio::test]
+async fn assemble_future() {
+    let writer = TestWriter::default().fold_ret(String::new(), |mut acc, n| {
+        acc += &n.to_string();
+        acc
+    });
+    let (acc, out) = iter(1..=5).assemble(writer).await.unwrap();
+    assert_eq!(acc, "12345".to_string());
+    assert_eq!(out, vec![1, 2, 3, 4, 5]);
+}
+
+#[tokio::test]
 async fn skip_last_complete_if_empty() {
-    let writer = TestWriter::default().map_ok(Some);
+    let writer = TestWriter::default();
     let outputs = iter(1..=10)
         .assembled(writer, |ret| ret % 5 == 0)
         .filter_map(|res| future::ready(res.ok()))
@@ -135,12 +158,16 @@ async fn skip_last_complete_if_empty() {
 }
 
 #[tokio::test]
-async fn write_complete_stream() {
-    let writer = TestWriter::default().fold_ret(String::new(), |mut acc, n| {
-        acc += &n.to_string();
-        acc
-    });
-    let (acc, out) = iter(1..=5).assemble(writer).await.unwrap();
-    assert_eq!(acc, "12345".to_string());
-    assert_eq!(out, vec![1, 2, 3, 4, 5]);
+async fn stream_ends_on_fused_writer() {
+    let writer = TestWriter::default().max_completed(4);
+    let mut outputs = iter(1..)
+        .assembled(writer, |ret| ret % 2 == 0)
+        .filter_map(|res| future::ready(res.ok()))
+        .collect::<Vec<_>>()
+        .await;
+    assert_eq!(outputs.pop(), Some(vec![7, 8]));
+    assert_eq!(outputs.pop(), Some(vec![5, 6]));
+    assert_eq!(outputs.pop(), Some(vec![3, 4]));
+    assert_eq!(outputs.pop(), Some(vec![1, 2]));
+    assert!(outputs.pop().is_none())
 }
