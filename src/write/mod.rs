@@ -83,7 +83,7 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         E: From<Self::Error>,
         Self: Sized,
     {
-        AndThen::new(self, f)
+        assert_writer::<Part, Self::Ret, E, T, _>(AndThen::new(self, f))
     }
 
     /// Wrap this writer in a `Box`, pinning it.
@@ -114,7 +114,10 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     where
         Self: Sized,
     {
-        Buffered::new(self, capacity.into().unwrap_or_default())
+        assert_writer::<Part, (), Self::Error, Self::Output, _>(Buffered::new(
+            self,
+            capacity.into().unwrap_or_default(),
+        ))
     }
 
     /// A future that runs this writer to completion, returning the associated
@@ -135,7 +138,9 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         U: MultipartWrite<Part, Error = Self::Error>,
         Self: Sized,
     {
-        Fanout::new(self, other)
+        assert_writer::<Part, (Self::Ret, U::Ret), Self::Error, (Self::Output, U::Output), _>(
+            Fanout::new(self, other),
+        )
     }
 
     /// A future that completes after the given part has been received by the
@@ -161,7 +166,7 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         F: FnMut(&Part) -> bool,
         Self: Sized,
     {
-        Filter::new(self, f)
+        assert_writer::<Part, Option<Self::Ret>, Self::Error, Self::Output, _>(Filter::new(self, f))
     }
 
     /// Attempt to map the input to a part for this writer, filtering out the
@@ -174,7 +179,7 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         F: FnMut(U) -> Option<Part>,
         Self: Sized,
     {
-        FilterMap::new(self, f)
+        assert_writer::<U, Option<Self::Ret>, Self::Error, Self::Output, _>(FilterMap::new(self, f))
     }
 
     /// A future that completes when the underlying writer has been flushed.
@@ -193,7 +198,9 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         F: FnMut(T, &Self::Ret) -> T,
         Self: Sized,
     {
-        FoldRet::new(self, id, f)
+        assert_writer::<Part, Self::Ret, Self::Error, (T, Self::Output), _>(FoldRet::new(
+            self, id, f,
+        ))
     }
 
     /// Returns a new writer that fuses according to the provided closure.
@@ -206,7 +213,9 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         F: FnMut(&Self::Output) -> bool,
         Self: Sized,
     {
-        Fuse::new(self, f)
+        assert_writer::<Part, Option<Self::Ret>, Self::Error, Option<Self::Output>, _>(Fuse::new(
+            self, f,
+        ))
     }
 
     /// "Lift" the multipart writer `U` in front of this one.
@@ -219,11 +228,11 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// the parts of another multipart writer.
     fn lift<U, T>(self, other: U) -> Lift<Self, U, Part>
     where
-        U: MultipartWrite<T, Output = Part>,
-        Self: MultipartWrite<Part> + Sized,
+        Self: Sized,
         Self::Error: From<U::Error>,
+        U: MultipartWrite<T, Output = Part>,
     {
-        Lift::new(self, other)
+        assert_writer::<T, U::Ret, Self::Error, Self::Output, _>(Lift::new(self, other))
     }
 
     /// Map this writer's error type to a different value, returning a new
@@ -233,7 +242,7 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         F: FnMut(Self::Error) -> E,
         Self: Sized,
     {
-        MapErr::new(self, f)
+        assert_writer::<Part, Self::Ret, E, Self::Output, _>(MapErr::new(self, f))
     }
 
     /// Map this writer's output type to a different type, returning a new
@@ -243,7 +252,7 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         F: FnMut(Self::Output) -> U,
         Self: Sized,
     {
-        MapOk::new(self, f)
+        assert_writer::<Part, Self::Ret, Self::Error, U, _>(MapOk::new(self, f))
     }
 
     /// Map this writer's return type to a different value, returning a new
@@ -253,7 +262,7 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         F: FnMut(Self::Ret) -> U,
         Self: Sized,
     {
-        MapRet::new(self, f)
+        assert_writer::<Part, U, Self::Error, Self::Output, _>(MapRet::new(self, f))
     }
 
     /// A convenience method for calling [`MultipartWrite::poll_ready`] on
@@ -307,7 +316,7 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         E: From<Self::Error>,
         Self: Sized,
     {
-        Then::new(self, f)
+        assert_writer::<Part, Self::Ret, E, T, _>(Then::new(self, f))
     }
 
     /// Provide a part to this writer in the output of a future.
@@ -322,6 +331,13 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         E: From<Self::Error>,
         Self: Sized,
     {
-        With::new(self, f)
+        assert_writer::<U, (), E, Self::Output, _>(With::new(self, f))
     }
+}
+
+fn assert_writer<Part, R, E, T, Wr>(wr: Wr) -> Wr
+where
+    Wr: MultipartWrite<Part, Ret = R, Error = E, Output = T>,
+{
+    wr
 }

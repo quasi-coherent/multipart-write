@@ -74,6 +74,37 @@ impl FusedMultipartWrite<usize> for TestWriter {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+struct OtherTestWriter(Vec<String>);
+
+impl MultipartWrite<Vec<usize>> for OtherTestWriter {
+    type Ret = usize;
+    type Output = String;
+    type Error = String;
+
+    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), String>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn start_send(mut self: Pin<&mut Self>, part: Vec<usize>) -> Result<usize, String> {
+        let n: usize = part.iter().sum();
+        self.as_mut().0.push(n.to_string());
+        Ok(self.0.len())
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_complete(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Result<Self::Output, Self::Error>> {
+        let out = self.0.join(",");
+        Poll::Ready(Ok(out))
+    }
+}
+
 #[tokio::test]
 async fn trait_futures() {
     let mut writer = TestWriter::default();
@@ -170,4 +201,11 @@ async fn stream_ends_on_fused_writer() {
     assert_eq!(outputs.pop(), Some(vec![3, 4]));
     assert_eq!(outputs.pop(), Some(vec![1, 2]));
     assert!(outputs.pop().is_none())
+}
+
+#[tokio::test]
+async fn lift_writer() {
+    let writer = OtherTestWriter::default().lift(TestWriter::default());
+    let out = iter(1..=5).assemble(writer).await.unwrap();
+    assert_eq!(&out, "15");
 }

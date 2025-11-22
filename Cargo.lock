@@ -41,7 +41,7 @@ dependencies = [
 
 [[package]]
 name = "multipart-write"
-version = "0.1.0-rc4"
+version = "0.1.0-rc5"
 dependencies = [
  "futures-core",
  "futures-util",

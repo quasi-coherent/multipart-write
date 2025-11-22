@@ -56,20 +56,20 @@ where
         loop {
             if this.buffered.is_some() {
                 match this.writer.as_mut().poll_ready(cx)? {
+                    Poll::Pending => return Poll::Pending,
                     Poll::Ready(()) => {
                         let _ = this
                             .writer
                             .as_mut()
                             .start_send(this.buffered.take().unwrap())?;
                     }
-                    Poll::Pending => return Poll::Pending,
                 }
             }
 
             let Some(st) = this.stream.as_mut().as_pin_mut() else {
-                let output = ready!(this.writer.as_mut().poll_complete(cx));
+                let out = ready!(this.writer.as_mut().poll_complete(cx));
                 *this.is_terminated = true;
-                return Poll::Ready(output);
+                return Poll::Ready(out);
             };
 
             match ready!(st.poll_next(cx)) {

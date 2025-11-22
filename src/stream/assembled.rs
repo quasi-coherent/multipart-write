@@ -71,8 +71,10 @@ where
                         *this.empty = false;
                         // Check if we should complete according to `F`.
                         if (this.f)(&ret) {
-                            // false since we don't have to shut down the stream
-                            // after the `poll_complete`.
+                            // `poll_complete` not followed by stream shutdown:
+                            // the state is `PollComplete(true)` only when the
+                            // stream stopped producing but we have to do one
+                            // final call to `poll_complete`.
                             *this.state = State::PollComplete(false);
                         } else {
                             *this.state = State::PollNext;
@@ -100,8 +102,7 @@ where
                     // Upstream stopped producing in the last iteration, or the
                     // writer indicates through its `FusedMultipartWrite` impl
                     // that it cannot be polled anymore, so set the state to
-                    // `Terminated` to immediately produce `None` and end the
-                    // stream the next time we are polled.
+                    // `Terminated` to end the stream the next time we're polled.
                     if last || this.writer.is_terminated() {
                         *this.state = State::Terminated;
                     } else {
