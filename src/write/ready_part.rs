@@ -1,34 +1,34 @@
-use crate::{FusedMultipartWrite, MultipartWrite};
-
-use futures_core::ready;
 use std::fmt::{self, Debug, Formatter};
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use futures_core::ready;
+
+use crate::{FusedMultipartWrite, MultipartWrite};
+
 pin_project_lite::pin_project! {
-    /// `MultipartWrite` for [`with`](super::MultipartWriteExt::with).
+    /// `MultipartWrite` for [`ready_part`].
+    ///
+    /// [`ready_part`]: super::MultipartWriteExt::ready_part
     #[must_use = "futures do nothing unless polled"]
-    pub struct With<Wr, Part, Fut, F> {
+    pub struct ReadyPart<Wr, Part, P, Fut, F> {
         #[pin]
         writer: Wr,
         f: F,
         #[pin]
         future: Option<Fut>,
         buffered: Option<Part>,
+        _p: PhantomData<fn(P) -> Part>,
     }
 }
 
-impl<Wr, Part, Fut, F> With<Wr, Part, Fut, F> {
+impl<Wr, Part, P, Fut, F> ReadyPart<Wr, Part, P, Fut, F> {
     pub(super) fn new(writer: Wr, f: F) -> Self {
-        Self {
-            writer,
-            f,
-            future: None,
-            buffered: None,
-        }
+        Self { writer, f, future: None, buffered: None, _p: PhantomData }
     }
 
-    /// Consumes `With`, returning the underlying writer.
+    /// Consumes `ReadyPart`, returning the underlying writer.
     pub fn into_inner(self) -> Wr {
         self.writer
     }
@@ -52,12 +52,14 @@ impl<Wr, Part, Fut, F> With<Wr, Part, Fut, F> {
         self.project().writer
     }
 
-    fn poll<U, E>(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<(), E>>
+    fn poll(
+        self: Pin<&mut Self>,
+        cx: &mut Context,
+    ) -> Poll<Result<(), Wr::Error>>
     where
         Wr: MultipartWrite<Part>,
-        F: FnMut(U) -> Fut,
-        Fut: Future<Output = Result<Part, E>>,
-        E: From<Wr::Error>,
+        F: FnMut(P) -> Fut,
+        Fut: Future<Output = Result<Part, Wr::Error>>,
     {
         let mut this = self.project();
 
@@ -65,7 +67,7 @@ impl<Wr, Part, Fut, F> With<Wr, Part, Fut, F> {
             match this.writer.as_mut().poll_ready(cx)? {
                 Poll::Ready(()) => {
                     this.writer.start_send(this.buffered.take().unwrap())?;
-                }
+                },
                 Poll::Pending => return Poll::Pending,
             }
         }
@@ -79,41 +81,49 @@ impl<Wr, Part, Fut, F> With<Wr, Part, Fut, F> {
     }
 }
 
-impl<U, E, Wr, Part, Fut, F> FusedMultipartWrite<U> for With<Wr, Part, Fut, F>
+impl<Wr, Part, P, Fut, F> FusedMultipartWrite<P>
+    for ReadyPart<Wr, Part, P, Fut, F>
 where
     Wr: FusedMultipartWrite<Part>,
-    F: FnMut(U) -> Fut,
-    Fut: Future<Output = Result<Part, E>>,
-    E: From<Wr::Error>,
+    F: FnMut(P) -> Fut,
+    Fut: Future<Output = Result<Part, Wr::Error>>,
 {
     fn is_terminated(&self) -> bool {
         self.writer.is_terminated()
     }
 }
 
-impl<U, E, Wr, Part, Fut, F> MultipartWrite<U> for With<Wr, Part, Fut, F>
+impl<Wr, Part, P, Fut, F> MultipartWrite<P> for ReadyPart<Wr, Part, P, Fut, F>
 where
     Wr: MultipartWrite<Part>,
-    F: FnMut(U) -> Fut,
-    Fut: Future<Output = Result<Part, E>>,
-    E: From<Wr::Error>,
+    F: FnMut(P) -> Fut,
+    Fut: Future<Output = Result<Part, Wr::Error>>,
 {
-    type Ret = ();
+    type Error = Wr::Error;
     type Output = Wr::Output;
-    type Error = E;
+    type Recv = ();
 
-    fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
         ready!(self.as_mut().poll(cx))?;
-        self.project().writer.poll_ready(cx).map_err(E::from)
+        self.project().writer.poll_ready(cx)
     }
 
-    fn start_send(self: Pin<&mut Self>, part: U) -> Result<Self::Ret, Self::Error> {
+    fn start_send(
+        self: Pin<&mut Self>,
+        part: P,
+    ) -> Result<Self::Recv, Self::Error> {
         let mut this = self.project();
         this.future.set(Some((this.f)(part)));
         Ok(())
     }
 
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
         ready!(self.as_mut().poll(cx))?;
         ready!(self.project().writer.poll_flush(cx)?);
         Poll::Ready(Ok(()))
@@ -129,16 +139,15 @@ where
     }
 }
 
-impl<Wr, Part, Fut, F> Debug for With<Wr, Part, Fut, F>
+impl<Wr, Part, P, Fut, F> Debug for ReadyPart<Wr, Part, P, Fut, F>
 where
     Wr: Debug,
     Fut: Debug,
     Part: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("With")
+        f.debug_struct("ReadyPart")
             .field("writer", &self.writer)
-            .field("f", &"impl FnMut(U) -> Fut")
             .field("future", &self.future)
             .field("buffered", &self.buffered)
             .finish()

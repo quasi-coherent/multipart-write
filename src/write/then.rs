@@ -1,29 +1,28 @@
-use crate::{FusedMultipartWrite, MultipartWrite};
-
-use futures_core::ready;
 use std::fmt::{self, Debug, Formatter};
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+
+use futures_core::ready;
+
+use crate::{FusedMultipartWrite, MultipartWrite};
 
 pin_project_lite::pin_project! {
     /// `MultipartWrite` for [`then`](super::MultipartWriteExt::then).
     #[must_use = "futures do nothing unless polled"]
-    pub struct Then<Wr, Fut, F> {
+    pub struct Then<Wr, Part, T, Fut, F> {
         #[pin]
         writer: Wr,
         #[pin]
-        future: Option<Fut>,
+        fut: Option<Fut>,
         f: F,
+        _p: PhantomData<fn(Part) -> T>,
     }
 }
 
-impl<Wr, Fut, F> Then<Wr, Fut, F> {
+impl<Wr, Part, T, Fut, F> Then<Wr, Part, T, Fut, F> {
     pub(super) fn new(writer: Wr, f: F) -> Self {
-        Self {
-            writer,
-            future: None,
-            f,
-        }
+        Self { writer, fut: None, f, _p: PhantomData }
     }
 
     /// Consumes `Then`, returning the underlying writer.
@@ -51,39 +50,47 @@ impl<Wr, Fut, F> Then<Wr, Fut, F> {
     }
 }
 
-impl<Wr, Fut, F, Part, T, E> FusedMultipartWrite<Part> for Then<Wr, Fut, F>
+impl<Wr, Part, T, Fut, F> FusedMultipartWrite<Part>
+    for Then<Wr, Part, T, Fut, F>
 where
     Wr: FusedMultipartWrite<Part>,
     F: FnMut(Result<Wr::Output, Wr::Error>) -> Fut,
-    Fut: Future<Output = Result<T, E>>,
-    E: From<Wr::Error>,
+    Fut: Future<Output = Result<T, Wr::Error>>,
 {
     fn is_terminated(&self) -> bool {
         self.writer.is_terminated()
     }
 }
 
-impl<Wr, Fut, F, Part, T, E> MultipartWrite<Part> for Then<Wr, Fut, F>
+impl<Wr, Part, T, Fut, F> MultipartWrite<Part> for Then<Wr, Part, T, Fut, F>
 where
     Wr: MultipartWrite<Part>,
     F: FnMut(Result<Wr::Output, Wr::Error>) -> Fut,
-    Fut: Future<Output = Result<T, E>>,
-    E: From<Wr::Error>,
+    Fut: Future<Output = Result<T, Wr::Error>>,
 {
-    type Ret = Wr::Ret;
+    type Error = Wr::Error;
     type Output = T;
-    type Error = E;
+    type Recv = Wr::Recv;
 
-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.project().writer.poll_ready(cx).map_err(E::from)
+    fn poll_ready(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
+        self.project().writer.poll_ready(cx)
     }
 
-    fn start_send(self: Pin<&mut Self>, part: Part) -> Result<Self::Ret, Self::Error> {
-        self.project().writer.start_send(part).map_err(E::from)
+    fn start_send(
+        self: Pin<&mut Self>,
+        part: Part,
+    ) -> Result<Self::Recv, Self::Error> {
+        self.project().writer.start_send(part)
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.project().writer.poll_flush(cx).map_err(E::from)
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
+        self.project().writer.poll_flush(cx)
     }
 
     fn poll_complete(
@@ -91,23 +98,23 @@ where
         cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>> {
         let mut this = self.project();
-        if this.future.is_none() {
+        if this.fut.is_none() {
             let res = ready!(this.writer.poll_complete(cx));
             let fut = (this.f)(res);
-            this.future.set(Some(fut));
+            this.fut.set(Some(fut));
         }
         let fut = this
-            .future
+            .fut
             .as_mut()
             .as_pin_mut()
             .expect("polled Then after completion");
         let out = ready!(fut.poll(cx));
-        this.future.set(None);
+        this.fut.set(None);
         Poll::Ready(out)
     }
 }
 
-impl<Wr, Fut, F> Debug for Then<Wr, Fut, F>
+impl<Wr, Part, T, Fut, F> Debug for Then<Wr, Part, T, Fut, F>
 where
     Wr: Debug,
     Fut: Debug,
@@ -115,8 +122,7 @@ where
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Then")
             .field("writer", &self.writer)
-            .field("future", &self.future)
-            .field("f", &"impl FnMut(Result<Wr::Output, Wr::Error>) -> Fut")
+            .field("fut", &self.fut)
             .finish()
     }
 }

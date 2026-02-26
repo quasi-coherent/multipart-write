@@ -1,18 +1,19 @@
-use crate::MultipartWrite;
-
-use futures_core::future::{FusedFuture, Future};
-use futures_core::ready;
-use futures_core::stream::Stream;
 use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use futures_core::future::{FusedFuture, Future};
+use futures_core::ready;
+use futures_core::stream::Stream;
+
+use crate::MultipartWrite;
+
 pin_project_lite::pin_project! {
-    /// Future for [`assemble`].
+    /// Future for [`complete_with`].
     ///
-    /// [`assemble`]: super::MultipartStreamExt::assemble
+    /// [`complete_with`]: super::MultipartStreamExt::complete_with
     #[must_use = "futures do nothing unless polled"]
-    pub struct Assemble<St: Stream, Wr> {
+    pub struct CompleteWith<St: Stream, Wr> {
         #[pin]
         writer: Wr,
         #[pin]
@@ -22,7 +23,7 @@ pin_project_lite::pin_project! {
     }
 }
 
-impl<St: Stream, Wr> Assemble<St, Wr> {
+impl<St: Stream, Wr> CompleteWith<St, Wr> {
     pub(super) fn new(stream: St, writer: Wr) -> Self {
         Self {
             writer,
@@ -33,7 +34,7 @@ impl<St: Stream, Wr> Assemble<St, Wr> {
     }
 }
 
-impl<St, Wr> FusedFuture for Assemble<St, Wr>
+impl<St, Wr> FusedFuture for CompleteWith<St, Wr>
 where
     St: Stream,
     Wr: MultipartWrite<St::Item>,
@@ -43,7 +44,7 @@ where
     }
 }
 
-impl<St, Wr> Future for Assemble<St, Wr>
+impl<St, Wr> Future for CompleteWith<St, Wr>
 where
     St: Stream,
     Wr: MultipartWrite<St::Item>,
@@ -62,7 +63,7 @@ where
                             .writer
                             .as_mut()
                             .start_send(this.buffered.take().unwrap())?;
-                    }
+                    },
                 }
             }
 
@@ -80,14 +81,14 @@ where
     }
 }
 
-impl<St, Wr> Debug for Assemble<St, Wr>
+impl<St, Wr> Debug for CompleteWith<St, Wr>
 where
     St: Stream + Debug,
     St::Item: Debug,
     Wr: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Assemble")
+        f.debug_struct("CompleteWith")
             .field("writer", &self.writer)
             .field("stream", &self.stream)
             .field("buffered", &self.buffered)
