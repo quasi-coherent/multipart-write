@@ -1,9 +1,10 @@
-use crate::{FusedMultipartWrite, MultipartWrite};
-
-use futures_core::ready;
 use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
+
+use futures_core::ready;
+
+use crate::{FusedMultipartWrite, MultipartWrite};
 
 pin_project_lite::pin_project! {
     /// `MultipartWrite` for [`fuse`](super::MultipartWriteExt::fuse).
@@ -18,11 +19,7 @@ pin_project_lite::pin_project! {
 
 impl<Wr, F> Fuse<Wr, F> {
     pub(super) fn new(writer: Wr, f: F) -> Self {
-        Self {
-            writer,
-            f,
-            is_terminated: false,
-        }
+        Self { writer, f, is_terminated: false }
     }
 
     /// Consumes `Fuse`, returning the underlying writer.
@@ -65,25 +62,34 @@ where
     Wr: MultipartWrite<Item>,
     F: FnMut(&Wr::Output) -> bool,
 {
-    type Ret = Option<Wr::Ret>;
-    type Output = Option<Wr::Output>;
     type Error = Wr::Error;
+    type Output = Option<Wr::Output>;
+    type Recv = Option<Wr::Recv>;
 
-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
         if self.is_terminated {
             return Poll::Ready(Ok(()));
         }
         self.project().writer.as_mut().poll_ready(cx)
     }
 
-    fn start_send(self: Pin<&mut Self>, part: Item) -> Result<Self::Ret, Self::Error> {
+    fn start_send(
+        self: Pin<&mut Self>,
+        part: Item,
+    ) -> Result<Self::Recv, Self::Error> {
         if self.is_terminated {
             return Ok(None);
         }
         self.project().writer.as_mut().start_send(part).map(Some)
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
         if self.is_terminated {
             return Poll::Ready(Ok(()));
         }

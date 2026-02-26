@@ -1,9 +1,10 @@
-use crate::{FusedMultipartWrite, MultipartWrite};
-
-use futures_core::ready;
 use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
+
+use futures_core::ready;
+
+use crate::{FusedMultipartWrite, MultipartWrite};
 
 pin_project_lite::pin_project! {
     /// `MultipartWrite` for [`fanout`](super::MultipartWriteExt::fanout).
@@ -18,14 +19,11 @@ pin_project_lite::pin_project! {
     }
 }
 
-impl<Wr1: MultipartWrite<Part>, Wr2: MultipartWrite<Part>, Part> Fanout<Wr1, Wr2, Part> {
+impl<Wr1: MultipartWrite<Part>, Wr2: MultipartWrite<Part>, Part>
+    Fanout<Wr1, Wr2, Part>
+{
     pub(super) fn new(wr1: Wr1, wr2: Wr2) -> Self {
-        Self {
-            wr1,
-            wr2,
-            wro1: None,
-            wro2: None,
-        }
+        Self { wr1, wr2, wro1: None, wro2: None }
     }
 }
 
@@ -46,37 +44,38 @@ where
     Wr1: MultipartWrite<Part>,
     Wr2: MultipartWrite<Part, Error = Wr1::Error>,
 {
-    type Ret = (Wr1::Ret, Wr2::Ret);
-    type Output = (Wr1::Output, Wr2::Output);
     type Error = Wr1::Error;
+    type Output = (Wr1::Output, Wr2::Output);
+    type Recv = (Wr1::Recv, Wr2::Recv);
 
-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
         let this = self.project();
         let ready1 = this.wr1.poll_ready(cx)?.is_ready();
         let ready2 = this.wr2.poll_ready(cx)?.is_ready();
-        if ready1 && ready2 {
-            Poll::Ready(Ok(()))
-        } else {
-            Poll::Pending
-        }
+        if ready1 && ready2 { Poll::Ready(Ok(())) } else { Poll::Pending }
     }
 
-    fn start_send(self: Pin<&mut Self>, part: Part) -> Result<Self::Ret, Self::Error> {
+    fn start_send(
+        self: Pin<&mut Self>,
+        part: Part,
+    ) -> Result<Self::Recv, Self::Error> {
         let this = self.project();
         let ret1 = this.wr1.start_send(part.clone())?;
         let ret2 = this.wr2.start_send(part)?;
         Ok((ret1, ret2))
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
         let this = self.project();
         let ready1 = this.wr1.poll_flush(cx)?.is_ready();
         let ready2 = this.wr2.poll_flush(cx)?.is_ready();
-        if ready1 && ready2 {
-            Poll::Ready(Ok(()))
-        } else {
-            Poll::Pending
-        }
+        if ready1 && ready2 { Poll::Ready(Ok(())) } else { Poll::Pending }
     }
 
     fn poll_complete(

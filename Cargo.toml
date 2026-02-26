@@ -1,6 +1,6 @@
 [package]
 name = "multipart-write"
-version = "0.1.0-rc5"
+version = "0.1.0-rc6"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/quasi-coherent/multipart-write"
 readme = "README.md"
@@ -18,13 +18,13 @@ rustdoc-args = ["--cfg", "docsrs"]
 default = []
 
 [dependencies]
-futures-core = "0.3.31"
-pin-project-lite = "0.2.16"
-tokio = { version = "1.47.0", default-features = false, optional = true }
+futures-core = "0.3.32"
+pin-project-lite = "0.2.17"
+tokio = { version = "1.49.0", default-features = false, optional = true }
 
 [dev-dependencies]
-futures-util = "0.3.31"
-tokio = { version = "1.47.0", default-features = false, features = ["macros", "rt-multi-thread"] }
+futures = { version = "0.3.32", features = ["executor"] }
+tokio = { version = "1.49.0", default-features = false, features = ["macros", "rt-multi-thread"] }
 
 [[example]]
 name = "author"

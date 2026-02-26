@@ -1,9 +1,10 @@
-use crate::{FusedMultipartWrite, MultipartWrite};
-
-use futures_core::ready;
 use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
+
+use futures_core::ready;
+
+use crate::{FusedMultipartWrite, MultipartWrite};
 
 pin_project_lite::pin_project! {
     /// `MultipartWrite` for [`and_then`](super::MultipartWriteExt::and_then).
@@ -19,11 +20,7 @@ pin_project_lite::pin_project! {
 
 impl<Wr, Fut, F> AndThen<Wr, Fut, F> {
     pub(super) fn new(writer: Wr, f: F) -> Self {
-        Self {
-            writer,
-            future: None,
-            f,
-        }
+        Self { writer, future: None, f }
     }
 
     /// Consumes `AndThen`, returning the underlying writer.
@@ -70,20 +67,29 @@ where
     Fut: Future<Output = Result<T, E>>,
     E: From<Wr::Error>,
 {
-    type Ret = Wr::Ret;
-    type Output = T;
     type Error = E;
+    type Output = T;
+    type Recv = Wr::Recv;
 
-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
         ready!(self.project().writer.poll_ready(cx))?;
         Poll::Ready(Ok(()))
     }
 
-    fn start_send(self: Pin<&mut Self>, part: Part) -> Result<Self::Ret, Self::Error> {
+    fn start_send(
+        self: Pin<&mut Self>,
+        part: Part,
+    ) -> Result<Self::Recv, Self::Error> {
         Ok(self.project().writer.start_send(part)?)
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
         ready!(self.project().writer.poll_flush(cx))?;
         Poll::Ready(Ok(()))
     }
@@ -118,7 +124,6 @@ where
         f.debug_struct("AndThen")
             .field("writer", &self.writer)
             .field("future", &self.future)
-            .field("f", &"impl FnMut(Wr::Output) -> Fut")
             .finish()
     }
 }

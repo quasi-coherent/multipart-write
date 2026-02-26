@@ -1,8 +1,8 @@
-use crate::{FusedMultipartWrite, MultipartWrite};
-
 use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
+
+use crate::{FusedMultipartWrite, MultipartWrite};
 
 pin_project_lite::pin_project! {
     /// `MultipartWrite` for [`map_err`](super::MultipartWriteExt::map_err).
@@ -59,11 +59,14 @@ where
     Wr: MultipartWrite<Part>,
     F: FnMut(Wr::Error) -> E,
 {
-    type Ret = Wr::Ret;
-    type Output = Wr::Output;
     type Error = E;
+    type Output = Wr::Output;
+    type Recv = Wr::Recv;
 
-    fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
         self.as_mut()
             .project()
             .writer
@@ -71,7 +74,10 @@ where
             .map_err(self.as_mut().project().f)
     }
 
-    fn start_send(mut self: Pin<&mut Self>, part: Part) -> Result<Self::Ret, Self::Error> {
+    fn start_send(
+        mut self: Pin<&mut Self>,
+        part: Part,
+    ) -> Result<Self::Recv, Self::Error> {
         self.as_mut()
             .project()
             .writer
@@ -79,7 +85,10 @@ where
             .map_err(self.as_mut().project().f)
     }
 
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
         self.as_mut()
             .project()
             .writer
@@ -101,9 +110,6 @@ where
 
 impl<Wr: Debug, F> Debug for MapErr<Wr, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("MapErr")
-            .field("writer", &self.writer)
-            .field("f", &"impl FnMut(Wr::Error) -> E")
-            .finish()
+        f.debug_struct("MapErr").field("writer", &self.writer).finish()
     }
 }
