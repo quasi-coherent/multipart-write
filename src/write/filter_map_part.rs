@@ -6,22 +6,24 @@ use std::task::{Context, Poll};
 use crate::{FusedMultipartWrite, MultipartWrite};
 
 pin_project_lite::pin_project! {
-    /// `MultipartWrite` for [`map_ok`](super::MultipartWriteExt::map_ok).
+    /// `MultipartWrite` for [`filter_map_part`].
+    ///
+    /// [`filter_map_part`]: super::MultipartWriteExt::filter_map_part
     #[must_use = "futures do nothing unless polled"]
-    pub struct MapOk<Wr, Part, T, F> {
+    pub struct FilterMapPart<Wr, Part, P, F> {
         #[pin]
         writer: Wr,
         f: F,
-        _p: PhantomData<fn(Part) -> T>,
+        _p: PhantomData<fn(P) -> Part>,
     }
 }
 
-impl<Wr, Part, T, F> MapOk<Wr, Part, T, F> {
+impl<Wr, Part, P, F> FilterMapPart<Wr, Part, P, F> {
     pub(super) fn new(writer: Wr, f: F) -> Self {
         Self { writer, f, _p: PhantomData }
     }
 
-    /// Consumes `MapOk`, returning the underlying writer.
+    /// Consumes `FilterMapPart`, returning the underlying writer.
     pub fn into_inner(self) -> Wr {
         self.writer
     }
@@ -46,37 +48,41 @@ impl<Wr, Part, T, F> MapOk<Wr, Part, T, F> {
     }
 }
 
-impl<Wr, Part, T, F> FusedMultipartWrite<Part> for MapOk<Wr, Part, T, F>
+impl<Wr, Part, P, F> FusedMultipartWrite<P> for FilterMapPart<Wr, Part, P, F>
 where
     Wr: FusedMultipartWrite<Part>,
-    F: FnMut(Wr::Output) -> T,
+    F: FnMut(P) -> Option<Part>,
 {
     fn is_terminated(&self) -> bool {
         self.writer.is_terminated()
     }
 }
 
-impl<Wr, Part, T, F> MultipartWrite<Part> for MapOk<Wr, Part, T, F>
+impl<Wr, Part, P, F> MultipartWrite<P> for FilterMapPart<Wr, Part, P, F>
 where
     Wr: MultipartWrite<Part>,
-    F: FnMut(Wr::Output) -> T,
+    F: FnMut(P) -> Option<Part>,
 {
     type Error = Wr::Error;
-    type Output = T;
-    type Recv = Wr::Recv;
+    type Output = Wr::Output;
+    type Recv = Option<Wr::Recv>;
 
     fn poll_ready(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), Self::Error>> {
-        self.project().writer.poll_ready(cx)
+        self.project().writer.as_mut().poll_ready(cx)
     }
 
     fn start_send(
         self: Pin<&mut Self>,
-        part: Part,
+        part: P,
     ) -> Result<Self::Recv, Self::Error> {
-        self.project().writer.start_send(part)
+        let this = self.project();
+        let Some(p) = (this.f)(part) else {
+            return Ok(None);
+        };
+        this.writer.start_send(p).map(Some)
     }
 
     fn poll_flush(
@@ -87,19 +93,15 @@ where
     }
 
     fn poll_complete(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>> {
-        self.as_mut()
-            .project()
-            .writer
-            .poll_complete(cx)
-            .map_ok(self.as_mut().project().f)
+        self.project().writer.poll_complete(cx)
     }
 }
 
-impl<Wr: Debug, Part, T, F> Debug for MapOk<Wr, Part, T, F> {
+impl<Wr: Debug, Part, P, F> Debug for FilterMapPart<Wr, Part, P, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("MapOk").field("writer", &self.writer).finish()
+        f.debug_struct("FilterMapPart").field("writer", &self.writer).finish()
     }
 }

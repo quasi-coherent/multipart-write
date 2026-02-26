@@ -3,25 +3,31 @@ use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use futures_core::{Future, ready};
+
 use crate::{FusedMultipartWrite, MultipartWrite};
 
 pin_project_lite::pin_project! {
-    /// `MultipartWrite` for [`map_ok`](super::MultipartWriteExt::map_ok).
+    /// `MultipartWrite` for [`for_each_recv`].
+    ///
+    /// [`for_each_recv`]: super::MultipartWriteExt::for_each_recv
     #[must_use = "futures do nothing unless polled"]
-    pub struct MapOk<Wr, Part, T, F> {
+    pub struct ForEachRecv<Wr, Part, Fut, F> {
         #[pin]
         writer: Wr,
+        #[pin]
+        fut: Option<Fut>,
         f: F,
-        _p: PhantomData<fn(Part) -> T>,
+        _p: PhantomData<Part>,
     }
 }
 
-impl<Wr, Part, T, F> MapOk<Wr, Part, T, F> {
+impl<Wr, Part, Fut, F> ForEachRecv<Wr, Part, Fut, F> {
     pub(super) fn new(writer: Wr, f: F) -> Self {
-        Self { writer, f, _p: PhantomData }
+        Self { writer, fut: None, f, _p: PhantomData }
     }
 
-    /// Consumes `MapOk`, returning the underlying writer.
+    /// Consumes `ForEachRecv`, returning the underlying writer.
     pub fn into_inner(self) -> Wr {
         self.writer
     }
@@ -46,37 +52,51 @@ impl<Wr, Part, T, F> MapOk<Wr, Part, T, F> {
     }
 }
 
-impl<Wr, Part, T, F> FusedMultipartWrite<Part> for MapOk<Wr, Part, T, F>
+impl<Wr, Part, Fut, F> FusedMultipartWrite<Part>
+    for ForEachRecv<Wr, Part, Fut, F>
 where
     Wr: FusedMultipartWrite<Part>,
-    F: FnMut(Wr::Output) -> T,
+    Wr::Recv: Clone,
+    F: FnMut(Wr::Recv) -> Fut,
+    Fut: Future<Output = ()>,
 {
     fn is_terminated(&self) -> bool {
-        self.writer.is_terminated()
+        self.writer.is_terminated() && self.fut.is_none()
     }
 }
 
-impl<Wr, Part, T, F> MultipartWrite<Part> for MapOk<Wr, Part, T, F>
+impl<Wr, Part, Fut, F> MultipartWrite<Part> for ForEachRecv<Wr, Part, Fut, F>
 where
     Wr: MultipartWrite<Part>,
-    F: FnMut(Wr::Output) -> T,
+    Wr::Recv: Clone,
+    F: FnMut(Wr::Recv) -> Fut,
+    Fut: Future<Output = ()>,
 {
     type Error = Wr::Error;
-    type Output = T;
+    type Output = Wr::Output;
     type Recv = Wr::Recv;
 
     fn poll_ready(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), Self::Error>> {
-        self.project().writer.poll_ready(cx)
+        let mut this = self.project();
+        if let Some(fut) = this.fut.as_mut().as_pin_mut() {
+            ready!(fut.poll(cx));
+            this.fut.set(None);
+        }
+        this.writer.poll_ready(cx)
     }
 
     fn start_send(
         self: Pin<&mut Self>,
         part: Part,
     ) -> Result<Self::Recv, Self::Error> {
-        self.project().writer.start_send(part)
+        let mut this = self.project();
+        let recv = this.writer.as_mut().start_send(part)?;
+        let fut = (this.f)(recv.clone());
+        this.fut.set(Some(fut));
+        Ok(recv)
     }
 
     fn poll_flush(
@@ -87,19 +107,22 @@ where
     }
 
     fn poll_complete(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>> {
-        self.as_mut()
-            .project()
-            .writer
-            .poll_complete(cx)
-            .map_ok(self.as_mut().project().f)
+        self.project().writer.poll_complete(cx)
     }
 }
 
-impl<Wr: Debug, Part, T, F> Debug for MapOk<Wr, Part, T, F> {
+impl<Wr, Part, Fut, F> Debug for ForEachRecv<Wr, Part, Fut, F>
+where
+    Wr: Debug,
+    Fut: Debug,
+{
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("MapOk").field("writer", &self.writer).finish()
+        f.debug_struct("ForEachRecv")
+            .field("writer", &self.writer)
+            .field("fut", &self.fut)
+            .finish()
     }
 }
