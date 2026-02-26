@@ -19,19 +19,28 @@ impl<W: Write> MultiIoWriter<W> {
 }
 
 impl<W: Write + Default> MultipartWrite<&[u8]> for MultiIoWriter<W> {
-    type Ret = usize;
-    type Output = W;
     type Error = std::io::Error;
+    type Output = W;
+    type Recv = usize;
 
-    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
 
-    fn start_send(self: Pin<&mut Self>, part: &[u8]) -> Result<Self::Ret, Self::Error> {
+    fn start_send(
+        self: Pin<&mut Self>,
+        part: &[u8],
+    ) -> Result<Self::Recv, Self::Error> {
         self.get_mut().inner.write(part)
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(self.get_mut().inner.flush())
     }
 

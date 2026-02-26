@@ -1,10 +1,11 @@
-use crate::{FusedMultipartWrite, MultipartWrite};
-
-use futures_core::future::{FusedFuture, Future};
 use std::fmt::{self, Debug, Formatter};
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+
+use futures_core::future::{FusedFuture, Future};
+
+use crate::{FusedMultipartWrite, MultipartWrite};
 
 /// Future for [`flush`](super::MultipartWriteExt::flush).
 #[must_use = "futures do nothing unless polled"]
@@ -17,10 +18,7 @@ impl<Wr: ?Sized + Unpin, Part> Unpin for Flush<'_, Wr, Part> {}
 
 impl<'a, Wr: ?Sized + MultipartWrite<Part> + Unpin, Part> Flush<'a, Wr, Part> {
     pub(super) fn new(writer: &'a mut Wr) -> Self {
-        Self {
-            writer,
-            _p: std::marker::PhantomData,
-        }
+        Self { writer, _p: std::marker::PhantomData }
     }
 }
 
@@ -35,15 +33,17 @@ where
 
 impl<Wr: MultipartWrite<Part> + Unpin, Part> Future for Flush<'_, Wr, Part> {
     type Output = Result<(), Wr::Error>;
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+
+    fn poll(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Self::Output> {
         Pin::new(&mut self.writer).poll_flush(cx)
     }
 }
 
 impl<Wr: Debug, Part> Debug for Flush<'_, Wr, Part> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Flush")
-            .field("writer", &self.writer)
-            .finish()
+        f.debug_struct("Flush").field("writer", &self.writer).finish()
     }
 }

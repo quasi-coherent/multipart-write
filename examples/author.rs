@@ -1,98 +1,37 @@
 //! This example centers on an `Author`.
 //!
 //! The author writes books.  The books are created by writing lines to a page
-//! until some configured limit, and pages to a book until some condition is met.
+//! until some configured limit, and pages to a book until some condition is
+//! met.
 //!
-//! This is modeled as a `MultipartWrite` by having the part be a line on a page,
-//! the return value of starting a write be the page number and current line
-//! count, the flushing behavior be finishing a page and starting a new page, and
-//! the completion of the writer be finishing the book.
-use futures_core::ready;
-use futures_util::{Future, Stream, StreamExt, future, stream};
+//! This is modeled as a `MultipartWrite` by having the part be a line on a
+//! page, the return value of starting a write be the page number and current
+//! line count, the flushing behavior be finishing a page and starting a new
+//! page, and the completion of the writer be finishing the book.
+use futures::{Future, Stream, StreamExt, future, ready, stream};
 use multipart_write::stream::MultipartStreamExt as _;
-use multipart_write::{FusedMultipartWrite, MultipartWrite, MultipartWriteExt as _};
+use multipart_write::{
+    BoxFusedMultipartWrite, BoxMultipartWrite, FusedMultipartWrite,
+    MultipartWrite, MultipartWriteExt as _,
+};
 use std::collections::BTreeMap;
 use std::fmt::{self, Display, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
-
-// Stream length.
-const TOTAL_LINES: usize = 625;
-
-#[tokio::main]
-async fn main() -> Result<(), String> {
-    let short_story = Narrative::stream(TOTAL_LINES)
-        .assemble(Author::default())
-        .await
-        .unwrap();
-    println!("{short_story}");
-    println!("=========================");
-
-    let short_story_reversed = Narrative::stream(TOTAL_LINES)
-        .assemble(Author::default().reverse())
-        .await
-        .unwrap();
-    println!("{short_story_reversed}");
-    println!("=========================");
-
-    let books: Vec<Book> = Narrative::stream(TOTAL_LINES)
-        .assembled(Author::default(), |b| b.page_number() >= 25)
-        .filter_map(|res| future::ready(res.ok()))
-        .collect()
-        .await;
-    books.into_iter().for_each(|book| println!("{book}"));
-    println!("=========================");
-
-    let french_books: Vec<Book> = Narrative::stream(TOTAL_LINES)
-        .assembled(Author::default().into_french(), |b| b.page_number() >= 25)
-        .filter_map(|res| future::ready(res.ok()))
-        .collect()
-        .await;
-    french_books.into_iter().for_each(|book| println!("{book}"));
-    println!("=========================");
-
-    Ok(())
-}
-
-impl Author {
-    /// This `MultipartWrite` augments the original implementation by reversing
-    /// the input text before sending to the writer.  The result is a new writer
-    /// that writes the same books but every line is backwards.
-    fn reverse(self) -> impl MultipartWrite<String, Ret = (), Output = Book, Error = String> {
-        self.with(|line: String| async move {
-            let rev: String = line.chars().rev().collect();
-            Ok::<String, String>(rev)
-        })
-    }
-
-    /// This `MultipartWrite` takes a book that was just completed and then
-    /// translates it into French, returning the translation as the final
-    /// complete output.  This translation is a computation that happens in a
-    /// future.
-    ///
-    /// Here it's mocked--the "translation" just replaces every line with a
-    /// constant--but it could be the result of using a `reqwest::Client` to
-    /// query `translate.googleapis.com/translate_a` with a request to translate
-    /// the text of the book from English to a target language, for instance.
-    fn into_french(
-        self,
-    ) -> impl FusedMultipartWrite<String, Ret = BookState, Output = Book, Error = String> {
-        self.and_then(Translator::get_translation)
-    }
-}
 
 /// The story to write.
 #[derive(Debug, Clone, Copy)]
 struct Narrative;
 
 impl Narrative {
-    fn stream(lines: usize) -> impl Stream<Item = String> {
-        stream::iter(Self).take(lines)
+    fn stream(lines: usize) -> impl Stream<Item = Line> {
+        stream::iter(Self).map(Line).take(lines)
     }
 }
 
 impl Iterator for Narrative {
     type Item = String;
+
     fn next(&mut self) -> Option<Self::Item> {
         Some("All work and no play make Jack a dull boy.".into())
     }
@@ -124,10 +63,11 @@ impl Page {
     }
 
     /// Write a line, returning the number of lines the page currently has.
-    fn write_line(&mut self, line_no: usize, text: String) -> Result<usize, String> {
-        let line = format!("{line_no:03} | {text}");
-        self.0.push(Line(line));
-        Ok(self.0.len())
+    fn write_line(&mut self, line_no: usize, line: Line) -> usize {
+        let Line(text) = line;
+        let with_ln = format!("{line_no:03} | {text}");
+        self.0.push(Line(with_ln));
+        self.0.len()
     }
 
     fn sort(&mut self) {
@@ -146,6 +86,7 @@ impl Default for PageNumber {
 }
 
 impl PageNumber {
+    /// Increment the page number the author is writing.
     fn new_page(&mut self) {
         self.0 += 1;
     }
@@ -162,13 +103,13 @@ impl Default for Book {
 }
 
 impl Book {
-    /// Return the string representation of the book's edition.
+    /// Returns the string representation of the book's edition.
     fn edition(&self) -> String {
         format!("Ed. {}", self.0)
     }
 
-    /// Start the next book by incrementing the edition and starting a new map of
-    /// page number to page.
+    /// Start the next book by incrementing the edition and starting a new map
+    /// of page number to page.
     fn start_next(&self) -> Book {
         Book(self.0 + 1, BTreeMap::default())
     }
@@ -176,7 +117,11 @@ impl Book {
     /// Write a page to the book.
     ///
     /// This returns an error if the book already has a page `page_number`.
-    fn write_page(&mut self, page_number: PageNumber, mut page: Page) -> Result<(), String> {
+    fn write_page(
+        &mut self,
+        page_number: PageNumber,
+        mut page: Page,
+    ) -> Result<(), String> {
         if self.1.contains_key(&page_number) {
             return Err(format!("page {} already exists", page_number.0));
         }
@@ -201,7 +146,7 @@ impl Display for Book {
             let pg = format!("[{}]", page_number.0);
             writeln!(f, "The Book, {edition}")?;
             for line in &page.0 {
-                writeln!(f, "{}", line)?;
+                writeln!(f, "{line}")?;
                 len = line.0.len() + 5;
             }
             writeln!(f, "{pg:^len$} ")?;
@@ -219,21 +164,25 @@ impl Display for Book {
 /// flush or complete the writer based on that information.
 ///
 /// When enough pages have been written, `poll_complete` finishes the `Book`.
-struct Author {
+///
+/// _Remark_: We carry the type of part `L` in `Author<L>` to aid in type
+/// inference, but this is not necessary.
+struct Author<L> {
     book: Book,
     page: Page,
     line_limit: usize,
     current_page: PageNumber,
     current_line: usize,
+    _line: std::marker::PhantomData<L>,
 }
 
-impl Default for Author {
+impl Default for Author<Line> {
     fn default() -> Self {
         Self::new(10)
     }
 }
 
-impl Author {
+impl Author<Line> {
     fn new(line_limit: usize) -> Self {
         Self {
             book: Book::default(),
@@ -241,18 +190,18 @@ impl Author {
             line_limit,
             current_page: PageNumber::default(),
             current_line: 1,
+            _line: std::marker::PhantomData,
         }
     }
 
-    /// Finish a page, returning the page number of the new page.
-    ///
-    /// This returns an error if there was already a page with the current page
-    /// number.
+    /// Finish a page, returning an error if there is a collision of page
+    /// numbers.
     fn new_page(&mut self) -> Result<(), String> {
         if self.page.line_count() == 0 {
             return Ok(());
         }
-        let finished_page = std::mem::replace(&mut self.page, Page::new(self.line_limit));
+        let finished_page =
+            std::mem::replace(&mut self.page, Page::new(self.line_limit));
         self.book.write_page(self.current_page, finished_page)?;
         self.current_page.new_page();
         self.current_line = 1;
@@ -260,10 +209,43 @@ impl Author {
     }
 
     fn book_state(&self, lines_written: usize) -> BookState {
-        BookState {
-            page_number: self.current_page,
-            lines_written,
-        }
+        BookState { page_number: self.current_page, lines_written }
+    }
+
+    /// Used primarily for helping type inference.  Since `MultipartWrite` is
+    /// generic over the part type, it is often not possible to infer various
+    /// types that appear in use.
+    fn boxed_author(
+        self,
+    ) -> BoxMultipartWrite<'static, Line, BookState, Book, String> {
+        self.boxed()
+    }
+
+    /// This `MultipartWrite` augments the original implementation by reversing
+    /// the input text before sending to the writer.  The result is a new writer
+    /// that writes the same books but every line is backwards.
+    fn reverse(self) -> BoxMultipartWrite<'static, Line, (), Book, String> {
+        self.boxed_author()
+            .ready_part(|line: Line| async move {
+                let rev = line.0.chars().rev().collect();
+                Ok(Line(rev))
+            })
+            .boxed()
+    }
+
+    /// This `MultipartWrite` takes a book that was just completed and then
+    /// translates it into French, returning the translation as the final
+    /// complete output.  This translation is a computation that happens in a
+    /// future.
+    ///
+    /// Here it's mocked--the "translation" just replaces every line with a
+    /// constant--but it could be the result of using a `reqwest::Client` to
+    /// query `translate.googleapis.com/translate_a` with a request to translate
+    /// the text of the book from English to a target language, for instance.
+    fn into_french(
+        self,
+    ) -> BoxFusedMultipartWrite<'static, Line, BookState, Book, String> {
+        self.and_then(Translator::get_translation).box_fused()
     }
 }
 
@@ -290,35 +272,66 @@ impl Display for BookState {
     }
 }
 
-impl FusedMultipartWrite<String> for Author {
+// This is responsible for notifying a caller that it is not safe to poll and it
+// never will be.
+//
+// In this case there is no concept of the internal state becoming invalid in
+// any way, so this writer may be reused into perpetuity.
+//
+// We still go through the trouble of writing out `is_terminated` because being
+// a fused writer is a requirement of select combinators, for example the stream
+// `try_complete_when`.
+impl FusedMultipartWrite<Line> for Author<Line> {
     fn is_terminated(&self) -> bool {
         false
     }
 }
 
-impl MultipartWrite<String> for Author {
-    type Ret = BookState;
-    type Output = Book;
+impl MultipartWrite<Line> for Author<Line> {
+    // Some error type for this writer.
     type Error = String;
+    // What is ultimately built from the parts.
+    type Output = Book;
+    // The type of value acknowledging receipt of a part.
+    type Recv = BookState;
 
-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        // This method needs to return `Poll::Pending` until there are less than
-        // `line_limit` lines.  Flushing would return `Poll::Pending` until there
-        // are 0 lines, so this is an appropriate way to implement `poll_ready`.
+    // Has to be called prior to any `start_send`. It is what says that the
+    // writer is prepared to accept more parts.
+    fn poll_ready(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
+        // In this case, the method needs to return `Poll::Pending` until there
+        // are less than `line_limit` lines.  Flushing returns pending until
+        // there are 0 lines, so this is one way to write it correctly.
         if self.page.line_count() >= self.line_limit {
             ready!(self.poll_flush(cx))?;
         }
         Poll::Ready(Ok(()))
     }
 
-    fn start_send(mut self: Pin<&mut Self>, text: String) -> Result<Self::Ret, Self::Error> {
+    // Send the part (line) to the writer (author, who has a page in-progress).
+    // What is returned represents that the part was received successfully, but
+    // can be any type of value.  In this case it's the `BookState` tracking the
+    // pages and lines written.
+    //
+    // In general, the type of value returned should be some information that
+    // the caller might use to decide to flush or complete the writer.
+    fn start_send(
+        mut self: Pin<&mut Self>,
+        line: Line,
+    ) -> Result<Self::Recv, Self::Error> {
         // Start the process of writing a line.
         let line_no = self.current_line;
-        let lines_written = self.page.write_line(line_no, text)?;
+        let lines_written = self.page.write_line(line_no, line);
         self.current_line += 1;
         Ok(self.book_state(lines_written))
     }
 
+    // Completely write any buffered parts, whatever that means.
+    //
+    // In this case we wrote `new_page` to internally update the state by adding
+    // the current page to the book and starting a new one.
     fn poll_flush(
         mut self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
@@ -326,6 +339,12 @@ impl MultipartWrite<String> for Author {
         Poll::Ready(self.new_page())
     }
 
+    // Called when enough parts have been written.
+    //
+    // The method is meant to combine or assemble everything that's been written
+    // into the associated `Self::Output`. For some types of writers, this
+    // renders the value permanently unable to be written to further, but this
+    // need not be the case.
     fn poll_complete(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -349,25 +368,71 @@ impl MultipartWrite<String> for Author {
 /// whose output type is `Book`.  This writer chains an asynchronous computation
 /// on the output of the inner writer.
 ///
-/// This const is used to mock the asynchronous computation that outputs a French
-/// translation.
-const LINE_FR: &str = "Tout le travail et aucun jeu font de Jack un garçon ennuyeux.";
+/// This const is just used to mock the asynchronous computation that outputs a
+/// French translation.
+const LINE_FR: &str =
+    "Tout le travail et aucun jeu font de Jack un garçon ennuyeux.";
 
 #[derive(Debug, Clone, Copy, Default)]
 struct Translator;
 
 impl Translator {
-    /// Mocking a call to  API to translate or something.
-    fn get_translation(mut book: Book) -> impl Future<Output = Result<Book, String>> {
+    /// Mocking a call to some translator service, like Google Translate or
+    /// something.
+    fn get_translation(
+        mut book: Book,
+    ) -> impl Future<Output = Result<Book, String>> {
         book.iter_mut().for_each(|(_, pg)| Self::translate_page(pg));
         future::ready(Ok(book))
     }
 
     fn translate_page(pg: &mut Page) {
-        let new_lines = std::iter::repeat_n(LINE_FR.to_string(), pg.line_count())
-            .enumerate()
-            .map(|(n, txt)| Line(format!("{n:03} | {txt}")))
-            .collect();
+        let new_lines =
+            std::iter::repeat_n(LINE_FR.to_string(), pg.line_count())
+                .enumerate()
+                .map(|(n, txt)| Line(format!("{n:03} | {txt}")))
+                .collect();
         pg.0 = new_lines;
     }
+}
+
+const LIMIT: usize = 625;
+
+/// Entrypoint of the example that prints the pages of the `Book` built by the
+/// various `Author` types.
+#[tokio::main]
+async fn main() -> Result<(), String> {
+    let short_story = Narrative::stream(LIMIT)
+        .complete_with(Author::default())
+        .await
+        .unwrap();
+    println!("{short_story}");
+    println!("=========================");
+
+    let short_story_reversed = Narrative::stream(LIMIT)
+        .complete_with(Author::default().reverse())
+        .await
+        .unwrap();
+    println!("{short_story_reversed}");
+    println!("=========================");
+
+    let books: Vec<Book> = Narrative::stream(LIMIT)
+        .try_complete_when(Author::default(), |b| b.page_number() >= 25)
+        .filter_map(|res| future::ready(res.ok()))
+        .collect()
+        .await;
+    books.into_iter().for_each(|book| println!("{book}"));
+    println!("=========================");
+
+    let french_books: Vec<Book> = Narrative::stream(LIMIT)
+        .try_complete_when(Author::default().into_french(), |b| {
+            b.page_number() >= 25
+        })
+        .filter_map(|res| future::ready(res.ok()))
+        .collect()
+        .await;
+    french_books.into_iter().for_each(|book| println!("{book}"));
+    println!("=========================");
+
+    Ok(())
 }

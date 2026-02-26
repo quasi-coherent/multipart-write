@@ -1,25 +1,27 @@
-use crate::{FusedMultipartWrite, MultipartWrite};
-
 use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use crate::{FusedMultipartWrite, MultipartWrite};
+
 pin_project_lite::pin_project! {
-    /// `MultipartWrite` for [`filter`](super::MultipartWriteExt::filter).
+    /// `MultipartWrite` for [`filter_part`].
+    ///
+    /// [`filter_part`]: super::MultipartWriteExt::filter_part
     #[must_use = "futures do nothing unless polled"]
-    pub struct Filter<Wr, F> {
+    pub struct FilterPart<Wr, F> {
         #[pin]
         writer: Wr,
         f: F,
     }
 }
 
-impl<Wr, F> Filter<Wr, F> {
+impl<Wr, F> FilterPart<Wr, F> {
     pub(super) fn new(writer: Wr, f: F) -> Self {
         Self { writer, f }
     }
 
-    /// Consumes `Filter`, returning the underlying writer.
+    /// Consumes `FilterPart`, returning the underlying writer.
     pub fn into_inner(self) -> Wr {
         self.writer
     }
@@ -44,7 +46,7 @@ impl<Wr, F> Filter<Wr, F> {
     }
 }
 
-impl<Wr, F, Part> FusedMultipartWrite<Part> for Filter<Wr, F>
+impl<Wr, F, Part> FusedMultipartWrite<Part> for FilterPart<Wr, F>
 where
     Wr: FusedMultipartWrite<Part>,
     F: FnMut(&Part) -> bool,
@@ -54,20 +56,26 @@ where
     }
 }
 
-impl<Wr, F, Part> MultipartWrite<Part> for Filter<Wr, F>
+impl<Wr, F, Part> MultipartWrite<Part> for FilterPart<Wr, F>
 where
     Wr: MultipartWrite<Part>,
     F: FnMut(&Part) -> bool,
 {
-    type Ret = Option<Wr::Ret>;
-    type Output = Wr::Output;
     type Error = Wr::Error;
+    type Output = Wr::Output;
+    type Recv = Option<Wr::Recv>;
 
-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
         self.project().writer.poll_ready(cx)
     }
 
-    fn start_send(self: Pin<&mut Self>, part: Part) -> Result<Self::Ret, Self::Error> {
+    fn start_send(
+        self: Pin<&mut Self>,
+        part: Part,
+    ) -> Result<Self::Recv, Self::Error> {
         let this = self.project();
         if !(this.f)(&part) {
             return Ok(None);
@@ -76,7 +84,10 @@ where
         Ok(Some(ret))
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
         self.project().writer.poll_flush(cx)
     }
 
@@ -88,11 +99,8 @@ where
     }
 }
 
-impl<Wr: Debug, F> Debug for Filter<Wr, F> {
+impl<Wr: Debug, F> Debug for FilterPart<Wr, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Filter")
-            .field("writer", &self.writer)
-            .field("f", &"impl FnMut(&Part) -> bool")
-            .finish()
+        f.debug_struct("FilterPart").field("writer", &self.writer).finish()
     }
 }
