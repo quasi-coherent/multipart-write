@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: taiki-e/checkout-action@v1.4.0
       - name: install rust
-      - uses: taiki-e/github-actions/install-rust@nightly
+        uses: taiki-e/github-actions/install-rust@nightly
       - run: cargo t --all-features --all-targets
       - run: cargo t --doc
       - run: cargo r --example author
