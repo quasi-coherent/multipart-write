@@ -28,8 +28,9 @@ pub trait MultipartStreamExt: Stream {
     ///     MultipartStreamExt as _, MultipartWriteExt as _, write,
     /// };
     ///
-    /// let writer = write::from_extend::<u8, Vec<u8>>().and_then(|vs| {
-    ///     futures::future::ready(Ok::<u8, std::io::Error>(vs.iter().sum()))
+    /// let writer = write::from_extend::<u8, Vec<u8>>().then(|res| async move {
+    ///     let vs = res?;
+    ///     Ok(vs.iter().sum::<u8>())
     /// });
     ///
     /// let vs: Vec<u8> = (1..=5).collect();
@@ -79,8 +80,9 @@ pub trait MultipartStreamExt: Stream {
     /// // item in the stream.
     /// let counter = Arc::new(AtomicU8::new(1));
     ///
-    /// let writer = write::from_extend::<u8, Vec<u8>>().and_then(|vs| {
-    ///     futures::future::ready(Ok::<u8, std::io::Error>(vs.iter().sum()))
+    /// let writer = write::from_extend::<u8, Vec<u8>>().then(|res| async move {
+    ///     let vs = res?;
+    ///     Ok(vs.iter().sum::<u8>())
     /// });
     ///
     /// let output = futures::stream::iter(1..=10)

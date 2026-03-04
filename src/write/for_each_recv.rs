@@ -2,28 +2,30 @@ use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use futures_core::ready;
+use futures_core::{Future, ready};
 
 use crate::{FusedMultipartWrite, MultipartWrite};
 
 pin_project_lite::pin_project! {
-    /// `MultipartWrite` for [`and_then`](super::MultipartWriteExt::and_then).
+    /// `MultipartWrite` for [`for_each_recv`].
+    ///
+    /// [`for_each_recv`]: super::MultipartWriteExt::for_each_recv
     #[must_use = "futures do nothing unless polled"]
-    pub struct AndThen<Wr, Fut, F> {
+    pub struct ForEachRecv<Wr, Fut, F> {
         #[pin]
         writer: Wr,
         #[pin]
-        future: Option<Fut>,
+        fut: Option<Fut>,
         f: F,
     }
 }
 
-impl<Wr, Fut, F> AndThen<Wr, Fut, F> {
+impl<Wr, Fut, F> ForEachRecv<Wr, Fut, F> {
     pub(super) fn new(writer: Wr, f: F) -> Self {
-        Self { writer, future: None, f }
+        Self { writer, fut: None, f }
     }
 
-    /// Consumes `AndThen`, returning the underlying writer.
+    /// Consumes `ForEachRecv`, returning the underlying writer.
     pub fn into_inner(self) -> Wr {
         self.writer
     }
@@ -48,82 +50,76 @@ impl<Wr, Fut, F> AndThen<Wr, Fut, F> {
     }
 }
 
-impl<Wr, Fut, F, Part, T, E> FusedMultipartWrite<Part> for AndThen<Wr, Fut, F>
+impl<Wr, Part, Fut, F> FusedMultipartWrite<Part> for ForEachRecv<Wr, Fut, F>
 where
     Wr: FusedMultipartWrite<Part>,
-    F: FnMut(Wr::Output) -> Fut,
-    Fut: Future<Output = Result<T, E>>,
-    E: From<Wr::Error>,
+    Wr::Recv: Clone,
+    F: FnMut(Wr::Recv) -> Fut,
+    Fut: Future<Output = ()>,
 {
     fn is_terminated(&self) -> bool {
-        self.writer.is_terminated()
+        self.writer.is_terminated() && self.fut.is_none()
     }
 }
 
-impl<Wr, Fut, F, Part, T, E> MultipartWrite<Part> for AndThen<Wr, Fut, F>
+impl<Wr, Part, Fut, F> MultipartWrite<Part> for ForEachRecv<Wr, Fut, F>
 where
     Wr: MultipartWrite<Part>,
-    F: FnMut(Wr::Output) -> Fut,
-    Fut: Future<Output = Result<T, E>>,
-    E: From<Wr::Error>,
+    Wr::Recv: Clone,
+    F: FnMut(Wr::Recv) -> Fut,
+    Fut: Future<Output = ()>,
 {
-    type Error = E;
-    type Output = T;
+    type Error = Wr::Error;
+    type Output = Wr::Output;
     type Recv = Wr::Recv;
 
     fn poll_ready(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), Self::Error>> {
-        ready!(self.project().writer.poll_ready(cx))?;
-        Poll::Ready(Ok(()))
+        let mut this = self.project();
+        if let Some(fut) = this.fut.as_mut().as_pin_mut() {
+            ready!(fut.poll(cx));
+            this.fut.set(None);
+        }
+        this.writer.poll_ready(cx)
     }
 
     fn start_send(
         self: Pin<&mut Self>,
         part: Part,
     ) -> Result<Self::Recv, Self::Error> {
-        Ok(self.project().writer.start_send(part)?)
+        let mut this = self.project();
+        let recv = this.writer.as_mut().start_send(part)?;
+        let fut = (this.f)(recv.clone());
+        this.fut.set(Some(fut));
+        Ok(recv)
     }
 
     fn poll_flush(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), Self::Error>> {
-        ready!(self.project().writer.poll_flush(cx))?;
-        Poll::Ready(Ok(()))
+        self.project().writer.poll_flush(cx)
     }
 
     fn poll_complete(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<Self::Output, Self::Error>> {
-        let mut this = self.project();
-        if this.future.is_none() {
-            let ret = ready!(this.writer.poll_complete(cx))?;
-            let fut = (this.f)(ret);
-            this.future.set(Some(fut));
-        }
-        let fut = this
-            .future
-            .as_mut()
-            .as_pin_mut()
-            .expect("polled AndThen after completion");
-        let out = ready!(fut.poll(cx));
-        this.future.set(None);
-        Poll::Ready(out)
+        self.project().writer.poll_complete(cx)
     }
 }
 
-impl<Wr, Fut, F> Debug for AndThen<Wr, Fut, F>
+impl<Wr, Fut, F> Debug for ForEachRecv<Wr, Fut, F>
 where
     Wr: Debug,
     Fut: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("AndThen")
+        f.debug_struct("ForEachRecv")
             .field("writer", &self.writer)
-            .field("future", &self.future)
+            .field("fut", &self.fut)
             .finish()
     }
 }

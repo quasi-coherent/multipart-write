@@ -9,28 +9,27 @@ use crate::{FusedMultipartWrite, MultipartWrite};
 
 /// Function that constructs a `MultipartWrite` from any value that has a
 /// default and implements [`std::iter::Extend`].
-pub fn from_extend<A, T: Default + Extend<A>>() -> FromExtend<A, T> {
+pub fn from_extend<A, T: Unpin + Default + Extend<A>>() -> FromExtend<A, T> {
     FromExtend::new(Default::default())
 }
 
-pin_project_lite::pin_project! {
-    /// `MultipartWrite` for the [`from_extend`] function.
-    #[must_use = "futures do nothing unless polled"]
-    pub struct FromExtend<A, T> {
-        inner: Option<T>,
-        _a: PhantomData<A>,
-    }
+/// `MultipartWrite` for the function `from_extend`.
+pub struct FromExtend<A, T> {
+    inner: Option<T>,
+    _a: PhantomData<A>,
 }
 
-impl<A, T: Default + Extend<A>> FromExtend<A, T> {
+impl<A, T: Unpin + Default + Extend<A>> FromExtend<A, T> {
     fn new(inner: T) -> Self {
         FromExtend { inner: Some(inner), _a: PhantomData }
     }
 }
 
+impl<A, T: Unpin + Default + Extend<A>> Unpin for FromExtend<A, T> {}
+
 impl<A, T> FusedMultipartWrite<A> for FromExtend<A, T>
 where
-    T: Default + Extend<A>,
+    T: Unpin + Default + Extend<A>,
 {
     fn is_terminated(&self) -> bool {
         false
@@ -39,7 +38,7 @@ where
 
 impl<A, T> MultipartWrite<A> for FromExtend<A, T>
 where
-    T: Default + Extend<A>,
+    T: Unpin + Default + Extend<A>,
 {
     type Error = IoError;
     type Output = T;
