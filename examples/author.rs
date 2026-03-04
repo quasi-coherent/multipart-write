@@ -8,7 +8,7 @@
 //! page, the return value of starting a write be the page number and current
 //! line count, the flushing behavior be finishing a page and starting a new
 //! page, and the completion of the writer be finishing the book.
-use futures::{Future, Stream, StreamExt, future, ready, stream};
+use futures::{Stream, StreamExt, future, ready, stream};
 use multipart_write::stream::MultipartStreamExt as _;
 use multipart_write::{
     BoxFusedMultipartWrite, BoxMultipartWrite, FusedMultipartWrite,
@@ -245,7 +245,7 @@ impl Author<Line> {
     fn into_french(
         self,
     ) -> BoxFusedMultipartWrite<'static, Line, BookState, Book, String> {
-        self.and_then(Translator::get_translation).box_fused()
+        self.then(Translator::get_translation).box_fused()
     }
 }
 
@@ -379,11 +379,12 @@ struct Translator;
 impl Translator {
     /// Mocking a call to some translator service, like Google Translate or
     /// something.
-    fn get_translation(
-        mut book: Book,
-    ) -> impl Future<Output = Result<Book, String>> {
+    async fn get_translation(
+        res: Result<Book, String>,
+    ) -> Result<Book, String> {
+        let mut book = res?;
         book.iter_mut().for_each(|(_, pg)| Self::translate_page(pg));
-        future::ready(Ok(book))
+        Ok(book)
     }
 
     fn translate_page(pg: &mut Page) {

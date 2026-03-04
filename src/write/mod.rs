@@ -11,9 +11,6 @@ use futures_core::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-mod and_then;
-pub use and_then::AndThen;
-
 mod buffered;
 pub use buffered::Buffered;
 
@@ -41,6 +38,9 @@ pub use flush::Flush;
 mod fold_sent;
 pub use fold_sent::FoldSent;
 
+mod for_each_recv;
+pub use for_each_recv::ForEachRecv;
+
 mod fuse;
 pub use fuse::Fuse;
 
@@ -65,51 +65,14 @@ pub use resolve::{Resolve, resolve};
 mod send_flush;
 pub use send_flush::SendFlush;
 
+mod then;
+pub use then::Then;
+
 impl<Wr: MultipartWrite<Part>, Part> MultipartWriteExt<Part> for Wr {}
 
 /// An extension trait for `MultipartWrite` providing a variety of convenient
 /// combinator functions.
 pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
-    /// Compute from this writer's output type a new result using an
-    /// asynchronous closure.
-    ///
-    /// Calling `poll_complete` on this writer will complete the inner writer,
-    /// then run the provided closure `f` with the output to produce the final
-    /// output of this writer.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # futures::executor::block_on(async {
-    /// use std::io::Error as IoError;
-    ///
-    /// use futures::future;
-    /// use multipart_write::{MultipartWriteExt as _, write};
-    ///
-    /// // `from_extend` turns an impl of `std::iter::Extend` into a writer,
-    /// // here one that writes a `u8` and outputs a `Vec<u8>`.
-    /// let mut writer = write::from_extend::<u8, Vec<u8>>().and_then(|vs| {
-    ///     future::ready(Ok::<_, IoError>(vs.iter().fold(0, |acc, n| acc + n)))
-    /// });
-    ///
-    /// writer.send_flush(1).await.unwrap();
-    /// writer.send_flush(2).await.unwrap();
-    /// writer.send_flush(3).await.unwrap();
-    /// let out = writer.complete().await.unwrap();
-    ///
-    /// assert_eq!(out, 6);
-    /// # });
-    /// ```
-    fn and_then<T, E, Fut, F>(self, f: F) -> AndThen<Self, Fut, F>
-    where
-        F: FnMut(Self::Output) -> Fut,
-        Fut: Future<Output = Result<T, E>>,
-        E: From<Self::Error>,
-        Self: Sized,
-    {
-        assert_writer::<Part, Self::Recv, E, T, _>(AndThen::new(self, f))
-    }
-
     /// Wrap this writer in a `Box`, pinning it.
     fn boxed<'a>(
         self,
@@ -352,10 +315,61 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         )
     }
 
+    /// Evaluate the given async closure on the associated `Self::Recv` for this
+    /// writer.
+    ///
+    /// The result is a new writer that has all of the same properties as this
+    /// writer, except that `poll_ready` will not accept the next part until the
+    /// future returned by evaluating `F` on the return value resolves.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # futures::executor::block_on(async {
+    /// use std::sync::Arc;
+    /// use std::sync::atomic::{AtomicU8, Ordering};
+    ///
+    /// use multipart_write::{MultipartWriteExt as _, write};
+    ///
+    /// let counter = Arc::new(AtomicU8::new(1));
+    ///
+    /// // `from_extend` has no return type, so `map_sent` makes one for the
+    /// // demonstration.
+    /// let wr = write::from_extend::<u8, Vec<u8>>().map_sent::<u8, _>(|_| {
+    ///     let cnt = Arc::clone(&counter);
+    ///     let n = cnt.fetch_add(1, Ordering::SeqCst);
+    ///     n
+    /// });
+    ///
+    /// let mut writer = wr.for_each_recv(|n| {
+    ///     println!("{n} parts written");
+    ///     futures::future::ready(())
+    /// });
+    ///
+    /// let r1 = writer.send_flush(1).await.unwrap();
+    /// let r2 = writer.send_flush(2).await.unwrap();
+    /// let r3 = writer.send_flush(3).await.unwrap();
+    /// let out = writer.complete().await.unwrap();
+    ///
+    /// assert_eq!(out, vec![1, 2, 3]);
+    /// # })
+    /// ```
+    fn for_each_recv<Fut, F>(self, f: F) -> ForEachRecv<Self, Fut, F>
+    where
+        Self: Sized,
+        Self::Recv: Clone,
+        F: FnMut(Self::Recv) -> Fut,
+        Fut: Future<Output = ()>,
+    {
+        assert_writer::<Part, Self::Recv, Self::Error, Self::Output, _>(
+            ForEachRecv::new(self, f),
+        )
+    }
+
     /// Returns a new writer that fuses according to the provided closure.
     ///
     /// The resulting writer wraps both `Self::Recv` and `Self::Output` in
-    /// an `Option` and is guaranted to both output and return `Ok(None)`
+    /// an `Option` and is guaranteed to both output and return `Ok(None)`
     /// when called after becoming fused.
     fn fuse<F>(self, f: F) -> Fuse<Self, F>
     where
@@ -379,8 +393,8 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// # futures::executor::block_on(async {
     /// use multipart_write::{MultipartWriteExt as _, write};
     ///
-    /// let wr = write::from_extend::<u8, Vec<u8>>()
-    ///     .map_ok(|vs| vs.iter().fold(0, |acc, n| acc + n));
+    /// let wr =
+    ///     write::from_extend::<u8, Vec<u8>>().map_ok(|vs| vs.iter().sum::<u8>());
     /// let mut writer = write::from_extend::<u8, Vec<u8>>().lift(wr);
     ///
     /// // We use `feed` and not `send_flush` because `send_flush` will complete
@@ -549,6 +563,38 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
         Self: Unpin,
     {
         SendFlush::new(self, part)
+    }
+
+    /// Asynchronously map the result of completing this writer to a different
+    /// result.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # futures::executor::block_on(async {
+    /// use multipart_write::{MultipartWriteExt as _, write};
+    ///
+    /// // `from_extend` turns an impl of `std::iter::Extend` into a writer,
+    /// // here one that writes a `u8` and outputs a `Vec<u8>`.
+    /// let mut writer = write::from_extend::<u8, Vec<u8>>().then(|res| {
+    ///     futures::future::ready(res.map(|vs| vs.iter().sum::<u8>()))
+    /// });
+    ///
+    /// writer.send_flush(1).await.unwrap();
+    /// writer.send_flush(2).await.unwrap();
+    /// writer.send_flush(3).await.unwrap();
+    /// let out = writer.complete().await.unwrap();
+    ///
+    /// assert_eq!(out, 6);
+    /// # });
+    /// ```
+    fn then<T, Fut, F>(self, f: F) -> Then<Self, Fut, F>
+    where
+        F: FnMut(Result<Self::Output, Self::Error>) -> Fut,
+        Fut: Future<Output = Result<T, Self::Error>>,
+        Self: Sized,
+    {
+        assert_writer::<Part, Self::Recv, Self::Error, T, _>(Then::new(self, f))
     }
 }
 
