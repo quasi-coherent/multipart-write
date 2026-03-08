@@ -1,4 +1,5 @@
 use std::fmt::{self, Debug, Formatter};
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -9,18 +10,19 @@ use crate::{FusedMultipartWrite, MultipartWrite};
 pin_project_lite::pin_project! {
     /// `MultipartWrite` for [`lift`](super::MultipartWriteExt::lift).
     #[must_use = "futures do nothing unless polled"]
-    pub struct Lift<Wr, U, Part> {
+    pub struct Lift<Wr, U, P, Part> {
         #[pin]
         inner: Wr,
         #[pin]
         writer: U,
         buffered: Option<Part>,
+        _p: PhantomData<fn(P)>,
     }
 }
 
-impl<Wr, U, Part> Lift<Wr, U, Part> {
+impl<Wr, U, P, Part> Lift<Wr, U, P, Part> {
     pub(super) fn new(inner: Wr, writer: U) -> Self {
-        Self { inner, writer, buffered: None }
+        Self { inner, writer, buffered: None, _p: PhantomData }
     }
 
     /// Consumes `Lift`, returning the underlying writer.
@@ -66,12 +68,12 @@ impl<Wr, U, Part> Lift<Wr, U, Part> {
         self.project().writer
     }
 
-    fn poll_send_inner<T>(
+    fn poll_send_inner(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), Wr::Error>>
     where
-        U: MultipartWrite<T, Output = Part>,
+        U: MultipartWrite<P, Output = Part>,
         Wr: MultipartWrite<Part>,
         Wr::Error: From<U::Error>,
     {
@@ -89,9 +91,9 @@ impl<Wr, U, Part> Lift<Wr, U, Part> {
     }
 }
 
-impl<T, Wr, U, Part> FusedMultipartWrite<T> for Lift<Wr, U, Part>
+impl<Wr, U, P, Part> FusedMultipartWrite<P> for Lift<Wr, U, P, Part>
 where
-    U: FusedMultipartWrite<T, Output = Part>,
+    U: FusedMultipartWrite<P, Output = Part>,
     Wr: FusedMultipartWrite<Part>,
     Wr::Error: From<U::Error>,
 {
@@ -100,9 +102,9 @@ where
     }
 }
 
-impl<T, Wr, U, Part> MultipartWrite<T> for Lift<Wr, U, Part>
+impl<Wr, U, P, Part> MultipartWrite<P> for Lift<Wr, U, P, Part>
 where
-    U: MultipartWrite<T, Output = Part>,
+    U: MultipartWrite<P, Output = Part>,
     Wr: MultipartWrite<Part>,
     Wr::Error: From<U::Error>,
 {
@@ -119,7 +121,7 @@ where
 
     fn start_send(
         self: Pin<&mut Self>,
-        part: T,
+        part: P,
     ) -> Result<Self::Recv, Self::Error> {
         self.project().writer.as_mut().start_send(part).map_err(Wr::Error::from)
     }
@@ -141,7 +143,7 @@ where
     }
 }
 
-impl<Wr, U, Part> Debug for Lift<Wr, U, Part>
+impl<Wr, U, P, Part> Debug for Lift<Wr, U, P, Part>
 where
     Wr: Debug,
     U: Debug,

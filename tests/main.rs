@@ -5,8 +5,7 @@ use futures::future;
 use futures::stream::{StreamExt as _, iter};
 use multipart_write::stream::MultipartStreamExt as _;
 use multipart_write::{
-    BoxMultipartWrite, FusedMultipartWrite, MultipartWrite,
-    MultipartWriteExt as _,
+    FusedMultipartWrite, MultipartWrite, MultipartWriteExt as _,
 };
 
 #[derive(Clone, Debug)]
@@ -41,12 +40,6 @@ impl TestWriter {
     fn max_completed(mut self, max: usize) -> Self {
         self.max_completed = Some(max);
         self
-    }
-
-    fn boxed_writer(
-        self,
-    ) -> BoxMultipartWrite<'static, usize, usize, Vec<usize>, String> {
-        self.boxed()
     }
 }
 
@@ -152,10 +145,8 @@ async fn trait_futures() {
 
 #[tokio::test]
 async fn map_writer() {
-    let mut writer = TestWriter::default()
-        .boxed_writer()
-        .map_ok(|ns| ns.iter().sum::<usize>());
-
+    let mut writer =
+        TestWriter::default().map_ok(|ns| ns.iter().sum::<usize>());
     for n in 1..=5 {
         writer.feed(n).await.unwrap();
     }
@@ -166,12 +157,11 @@ async fn map_writer() {
 
 #[tokio::test]
 async fn ready_part_writer() {
-    let mut writer = TestWriter::new(2)
-        .ready_part::<String, String, _, _>(|x| future::ready(Ok(x.len())))
-        .boxed();
-    writer.send_flush("abc".to_string()).await.unwrap();
-    writer.send_flush("d".to_string()).await.unwrap();
-    writer.send_flush("ef".to_string()).await.unwrap();
+    let mut writer =
+        TestWriter::new(2).ready_part(|x: &str| future::ready(Ok(x.len())));
+    writer.send_flush("abc").await.unwrap();
+    writer.send_flush("d").await.unwrap();
+    writer.send_flush("ef").await.unwrap();
     let out = writer.complete().await.unwrap();
 
     assert_eq!(out, vec![6, 2, 4]);

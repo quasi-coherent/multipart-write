@@ -1,4 +1,5 @@
 use std::fmt::{self, Debug, Formatter};
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -7,16 +8,17 @@ use crate::{FusedMultipartWrite, MultipartWrite};
 pin_project_lite::pin_project! {
     /// `MultipartWrite` for [`map_ok`](super::MultipartWriteExt::map_ok).
     #[must_use = "futures do nothing unless polled"]
-    pub struct MapOk<Wr, F> {
+    pub struct MapOk<Wr, Part, T, F> {
         #[pin]
         writer: Wr,
         f: F,
+        _p: PhantomData<fn(Part) -> T>,
     }
 }
 
-impl<Wr, F> MapOk<Wr, F> {
+impl<Wr, Part, T, F> MapOk<Wr, Part, T, F> {
     pub(super) fn new(writer: Wr, f: F) -> Self {
-        Self { writer, f }
+        Self { writer, f, _p: PhantomData }
     }
 
     /// Consumes `MapOk`, returning the underlying writer.
@@ -44,23 +46,23 @@ impl<Wr, F> MapOk<Wr, F> {
     }
 }
 
-impl<U, Wr, F, Part> FusedMultipartWrite<Part> for MapOk<Wr, F>
+impl<Wr, Part, T, F> FusedMultipartWrite<Part> for MapOk<Wr, Part, T, F>
 where
     Wr: FusedMultipartWrite<Part>,
-    F: FnMut(Wr::Output) -> U,
+    F: FnMut(Wr::Output) -> T,
 {
     fn is_terminated(&self) -> bool {
         self.writer.is_terminated()
     }
 }
 
-impl<U, Wr, F, Part> MultipartWrite<Part> for MapOk<Wr, F>
+impl<Wr, Part, T, F> MultipartWrite<Part> for MapOk<Wr, Part, T, F>
 where
     Wr: MultipartWrite<Part>,
-    F: FnMut(Wr::Output) -> U,
+    F: FnMut(Wr::Output) -> T,
 {
     type Error = Wr::Error;
-    type Output = U;
+    type Output = T;
     type Recv = Wr::Recv;
 
     fn poll_ready(
@@ -96,7 +98,7 @@ where
     }
 }
 
-impl<Wr: Debug, F> Debug for MapOk<Wr, F> {
+impl<Wr: Debug, Part, T, F> Debug for MapOk<Wr, Part, T, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("MapOk").field("writer", &self.writer).finish()
     }

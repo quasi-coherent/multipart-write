@@ -1,4 +1,5 @@
 use std::fmt::{self, Debug, Formatter};
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -7,16 +8,17 @@ use crate::{FusedMultipartWrite, MultipartWrite};
 pin_project_lite::pin_project! {
     /// `MultipartWrite` for [`map_sent`](super::MultipartWriteExt::map_sent).
     #[must_use = "futures do nothing unless polled"]
-    pub struct MapSent<Wr, F> {
+    pub struct MapSent<Wr, Part, R, F> {
         #[pin]
         writer: Wr,
         f: F,
+        _p: PhantomData<fn(R) -> Part>,
     }
 }
 
-impl<Wr, F> MapSent<Wr, F> {
+impl<Wr, Part, R, F> MapSent<Wr, Part, R, F> {
     pub(super) fn new(writer: Wr, f: F) -> Self {
-        Self { writer, f }
+        Self { writer, f, _p: PhantomData }
     }
 
     /// Consumes `MapSent`, returning the underlying writer.
@@ -44,24 +46,24 @@ impl<Wr, F> MapSent<Wr, F> {
     }
 }
 
-impl<U, Wr, F, Part> FusedMultipartWrite<Part> for MapSent<Wr, F>
+impl<Wr, Part, R, F> FusedMultipartWrite<Part> for MapSent<Wr, Part, R, F>
 where
     Wr: FusedMultipartWrite<Part>,
-    F: FnMut(Wr::Recv) -> U,
+    F: FnMut(Wr::Recv) -> R,
 {
     fn is_terminated(&self) -> bool {
         self.writer.is_terminated()
     }
 }
 
-impl<U, Wr, F, Part> MultipartWrite<Part> for MapSent<Wr, F>
+impl<Wr, Part, R, F> MultipartWrite<Part> for MapSent<Wr, Part, R, F>
 where
     Wr: MultipartWrite<Part>,
-    F: FnMut(Wr::Recv) -> U,
+    F: FnMut(Wr::Recv) -> R,
 {
     type Error = Wr::Error;
     type Output = Wr::Output;
-    type Recv = U;
+    type Recv = R;
 
     fn poll_ready(
         self: Pin<&mut Self>,
@@ -96,7 +98,7 @@ where
     }
 }
 
-impl<Wr: Debug, F> Debug for MapSent<Wr, F> {
+impl<Wr: Debug, Part, R, F> Debug for MapSent<Wr, Part, R, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("MapSent").field("writer", &self.writer).finish()
     }

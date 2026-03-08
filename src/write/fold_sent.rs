@@ -1,4 +1,5 @@
 use std::fmt::{self, Debug, Formatter};
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -11,17 +12,18 @@ pin_project_lite::pin_project! {
     ///
     ///[`fold_sent`]: super::MultipartWriteExt::fold_sent
     #[must_use = "futures do nothing unless polled"]
-    pub struct FoldSent<Wr, T, F> {
+    pub struct FoldSent<Wr, T, F, Part> {
         #[pin]
         writer: Wr,
         acc: Option<T>,
         f: F,
+        _p: PhantomData<Part>,
     }
 }
 
-impl<Wr, T, F> FoldSent<Wr, T, F> {
+impl<Wr, T, F, Part> FoldSent<Wr, T, F, Part> {
     pub(super) fn new(writer: Wr, id: T, f: F) -> Self {
-        Self { writer, acc: Some(id), f }
+        Self { writer, acc: Some(id), f, _p: PhantomData }
     }
 
     /// Consumes `FoldSent`, returning the underlying writer.
@@ -49,7 +51,7 @@ impl<Wr, T, F> FoldSent<Wr, T, F> {
     }
 }
 
-impl<Wr, T, F, Part> FusedMultipartWrite<Part> for FoldSent<Wr, T, F>
+impl<Wr, T, F, Part> FusedMultipartWrite<Part> for FoldSent<Wr, T, F, Part>
 where
     Wr: FusedMultipartWrite<Part>,
     F: FnMut(T, &Wr::Recv) -> T,
@@ -59,7 +61,7 @@ where
     }
 }
 
-impl<Wr, T, F, Part> MultipartWrite<Part> for FoldSent<Wr, T, F>
+impl<Wr, T, F, Part> MultipartWrite<Part> for FoldSent<Wr, T, F, Part>
 where
     Wr: MultipartWrite<Part>,
     F: FnMut(T, &Wr::Recv) -> T,
@@ -104,7 +106,7 @@ where
     }
 }
 
-impl<Wr, T, F> Debug for FoldSent<Wr, T, F>
+impl<Wr, T, F, Part> Debug for FoldSent<Wr, T, F, Part>
 where
     Wr: Debug,
     T: Debug,

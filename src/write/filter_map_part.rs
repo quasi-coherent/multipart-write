@@ -1,4 +1,5 @@
 use std::fmt::{self, Debug, Formatter};
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -9,16 +10,17 @@ pin_project_lite::pin_project! {
     ///
     /// [`filter_map_part`]: super::MultipartWriteExt::filter_map_part
     #[must_use = "futures do nothing unless polled"]
-    pub struct FilterMapPart<Wr, F> {
+    pub struct FilterMapPart<Wr, Part, P, F> {
         #[pin]
         writer: Wr,
         f: F,
+        _p: PhantomData<fn(P) -> Part>,
     }
 }
 
-impl<Wr, F> FilterMapPart<Wr, F> {
+impl<Wr, Part, P, F> FilterMapPart<Wr, Part, P, F> {
     pub(super) fn new(writer: Wr, f: F) -> Self {
-        Self { writer, f }
+        Self { writer, f, _p: PhantomData }
     }
 
     /// Consumes `FilterMapPart`, returning the underlying writer.
@@ -46,20 +48,20 @@ impl<Wr, F> FilterMapPart<Wr, F> {
     }
 }
 
-impl<Wr, U, Part, F> FusedMultipartWrite<U> for FilterMapPart<Wr, F>
+impl<Wr, Part, P, F> FusedMultipartWrite<P> for FilterMapPart<Wr, Part, P, F>
 where
     Wr: FusedMultipartWrite<Part>,
-    F: FnMut(U) -> Option<Part>,
+    F: FnMut(P) -> Option<Part>,
 {
     fn is_terminated(&self) -> bool {
         self.writer.is_terminated()
     }
 }
 
-impl<Wr, U, Part, F> MultipartWrite<U> for FilterMapPart<Wr, F>
+impl<Wr, Part, P, F> MultipartWrite<P> for FilterMapPart<Wr, Part, P, F>
 where
     Wr: MultipartWrite<Part>,
-    F: FnMut(U) -> Option<Part>,
+    F: FnMut(P) -> Option<Part>,
 {
     type Error = Wr::Error;
     type Output = Wr::Output;
@@ -74,7 +76,7 @@ where
 
     fn start_send(
         self: Pin<&mut Self>,
-        part: U,
+        part: P,
     ) -> Result<Self::Recv, Self::Error> {
         let this = self.project();
         let Some(p) = (this.f)(part) else {
@@ -98,7 +100,7 @@ where
     }
 }
 
-impl<Wr: Debug, F> Debug for FilterMapPart<Wr, F> {
+impl<Wr: Debug, Part, P, F> Debug for FilterMapPart<Wr, Part, P, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("FilterMapPart").field("writer", &self.writer).finish()
     }

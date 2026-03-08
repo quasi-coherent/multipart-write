@@ -17,8 +17,8 @@ pub use buffered::Buffered;
 mod complete;
 pub use complete::Complete;
 
-mod from_extend;
-pub use from_extend::{FromExtend, from_extend};
+mod extend;
+pub use extend::{Extend, extend, extend_default};
 
 mod fanout;
 pub use fanout::Fanout;
@@ -164,10 +164,11 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// # futures::executor::block_on(async {
     /// use multipart_write::{MultipartWriteExt as _, write};
     ///
-    /// let wr1 = write::from_extend::<u8, Vec<u8>>();
-    /// let wr2 = write::from_extend::<u8, Vec<u8>>();
-    /// let mut writer = wr1.fanout(wr2);
+    /// let init: Vec<u8> = Vec::new();
+    /// let wr1 = write::extend(init.clone());
+    /// let wr2 = write::extend(init);
     ///
+    /// let mut writer = wr1.fanout(wr2);
     /// writer.send_flush(1).await.unwrap();
     /// writer.send_flush(2).await.unwrap();
     /// writer.send_flush(3).await.unwrap();
@@ -195,8 +196,8 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// writer.
     ///
     /// Unlike `send_flush`, the returned future does not flush the writer.  It
-    /// is the caller's responsibility to ensure all pending items are
-    /// processed, which can be done with `flush` or `complete`.
+    /// is the caller's responsibility to ensure all pending items are processed
+    /// by calling `flush` or `complete`.
     fn feed(&mut self, part: Part) -> Feed<'_, Self, Part>
     where
         Self: Unpin,
@@ -216,8 +217,8 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// # futures::executor::block_on(async {
     /// use multipart_write::{MultipartWriteExt, write};
     ///
-    /// let mut writer =
-    ///     write::from_extend::<u8, Vec<u8>>().filter_part(|n| n % 2 == 0);
+    /// let init: Vec<u8> = Vec::new();
+    /// let mut writer = write::extend(init).filter_part(|n| n % 2 == 0);
     ///
     /// let r1 = writer.send_flush(1).await.unwrap();
     /// let r2 = writer.send_flush(2).await.unwrap();
@@ -228,7 +229,7 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// assert_eq!(out, vec![2]);
     /// # })
     /// ```
-    fn filter_part<F>(self, f: F) -> FilterPart<Self, F>
+    fn filter_part<F>(self, f: F) -> FilterPart<Self, Part, F>
     where
         F: FnMut(&Part) -> bool,
         Self: Sized,
@@ -250,10 +251,10 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// # futures::executor::block_on(async {
     /// use multipart_write::{MultipartWriteExt as _, write};
     ///
-    /// let mut writer = write::from_extend::<String, Vec<String>>()
-    ///     .filter_map_part::<u8, _>(|n| {
-    ///         if n % 2 == 0 { Some(n.to_string()) } else { None }
-    ///     });
+    /// let init: Vec<String> = Vec::new();
+    /// let mut writer = write::extend(init).filter_map_part(|n: u8| {
+    ///     if n % 2 == 0 { Some(n.to_string()) } else { None }
+    /// });
     ///
     /// let r1 = writer.send_flush(1).await.unwrap();
     /// let r2 = writer.send_flush(2).await.unwrap();
@@ -264,12 +265,12 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// assert_eq!(out, vec!["2".to_string()]);
     /// # })
     /// ```
-    fn filter_map_part<U, F>(self, f: F) -> FilterMapPart<Self, F>
+    fn filter_map_part<P, F>(self, f: F) -> FilterMapPart<Self, Part, P, F>
     where
-        F: FnMut(U) -> Option<Part>,
+        F: FnMut(P) -> Option<Part>,
         Self: Sized,
     {
-        assert_writer::<U, Option<Self::Recv>, Self::Error, Self::Output, _>(
+        assert_writer::<P, Option<Self::Recv>, Self::Error, Self::Output, _>(
             FilterMapPart::new(self, f),
         )
     }
@@ -291,8 +292,8 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// # futures::executor::block_on(async {
     /// use multipart_write::{MultipartWriteExt as _, write};
     ///
-    /// let mut writer =
-    ///     write::from_extend::<u8, Vec<u8>>().fold_sent(0, |n, _| n + 1);
+    /// let init: Vec<u8> = Vec::new();
+    /// let mut writer = write::extend(init).fold_sent(0, |n, _| n + 1);
     ///
     /// let r1 = writer.send_flush(1).await.unwrap();
     /// let r2 = writer.send_flush(2).await.unwrap();
@@ -302,7 +303,7 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// assert_eq!(out, (3, vec![1, 2, 3]));
     /// # })
     /// ```
-    fn fold_sent<T, F>(self, id: T, f: F) -> FoldSent<Self, T, F>
+    fn fold_sent<T, F>(self, id: T, f: F) -> FoldSent<Self, T, F, Part>
     where
         F: FnMut(T, &Self::Recv) -> T,
         Self: Sized,
@@ -330,18 +331,19 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     ///
     /// let counter = Arc::new(AtomicU8::new(1));
     ///
-    /// // `from_extend` has no return type, so `map_sent` makes one for the
+    /// // `extend` has no return type, so `map_sent` makes one for the
     /// // demonstration.
-    /// let wr = write::from_extend::<u8, Vec<u8>>().map_sent::<u8, _>(|_| {
-    ///     let cnt = Arc::clone(&counter);
-    ///     let n = cnt.fetch_add(1, Ordering::SeqCst);
-    ///     n
-    /// });
-    ///
-    /// let mut writer = wr.for_each_recv(|n| {
-    ///     println!("{n} parts written");
-    ///     futures::future::ready(())
-    /// });
+    /// let init: Vec<u8> = Vec::new();
+    /// let mut writer = write::extend(init)
+    ///     .map_sent(|_| {
+    ///         let cnt = Arc::clone(&counter);
+    ///         let n = cnt.fetch_add(1, Ordering::SeqCst);
+    ///         n
+    ///     })
+    ///     .for_each_recv(|n| {
+    ///         println!("{n} parts written");
+    ///         futures::future::ready(())
+    ///     });
     ///
     /// let r1 = writer.send_flush(1).await.unwrap();
     /// let r2 = writer.send_flush(2).await.unwrap();
@@ -351,7 +353,7 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// assert_eq!(out, vec![1, 2, 3]);
     /// # })
     /// ```
-    fn for_each_recv<Fut, F>(self, f: F) -> ForEachRecv<Self, Fut, F>
+    fn for_each_recv<Fut, F>(self, f: F) -> ForEachRecv<Self, Part, Fut, F>
     where
         Self: Sized,
         Self::Recv: Clone,
@@ -368,7 +370,7 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// The resulting writer wraps both `Self::Recv` and `Self::Output` in
     /// an `Option` and is guaranteed to both output and return `Ok(None)`
     /// when called after becoming fused.
-    fn fuse<F>(self, f: F) -> Fuse<Self, F>
+    fn fuse<F>(self, f: F) -> Fuse<Self, Part, F>
     where
         F: FnMut(&Self::Output) -> bool,
         Self: Sized,
@@ -390,9 +392,9 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// # futures::executor::block_on(async {
     /// use multipart_write::{MultipartWriteExt as _, write};
     ///
-    /// let wr =
-    ///     write::from_extend::<u8, Vec<u8>>().map_ok(|vs| vs.iter().sum::<u8>());
-    /// let mut writer = write::from_extend::<u8, Vec<u8>>().lift(wr);
+    /// let init: Vec<u8> = Vec::new();
+    /// let wr = write::extend(init.clone()).map_ok(|vs| vs.iter().sum::<u8>());
+    /// let mut writer = write::extend(init).lift(wr);
     ///
     /// // We use `feed` and not `send_flush` because `send_flush` will complete
     /// // the outer writer and write its output to the inner writer after each
@@ -412,13 +414,13 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// assert_eq!(out, vec![3, 12]);
     /// # })
     /// ```
-    fn lift<U, T>(self, other: U) -> Lift<Self, U, Part>
+    fn lift<U, P>(self, other: U) -> Lift<Self, U, P, Part>
     where
         Self: Sized,
         Self::Error: From<U::Error>,
-        U: MultipartWrite<T, Output = Part>,
+        U: MultipartWrite<P, Output = Part>,
     {
-        assert_writer::<T, U::Recv, Self::Error, Self::Output, _>(Lift::new(
+        assert_writer::<P, U::Recv, Self::Error, Self::Output, _>(Lift::new(
             self, other,
         ))
     }
@@ -432,8 +434,8 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// # futures::executor::block_on(async {
     /// use multipart_write::{MultipartWriteExt as _, write};
     ///
-    /// let mut writer = write::from_extend::<u8, Vec<u8>>()
-    ///     .map_sent::<&'static str, _>(|_| "OK");
+    /// let init: Vec<u8> = Vec::new();
+    /// let mut writer = write::extend(init).map_sent(|_| "OK");
     ///
     /// let r1 = writer.send_flush(1).await.unwrap();
     /// let r2 = writer.send_flush(2).await.unwrap();
@@ -444,19 +446,19 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// assert_eq!(out, vec![1, 2, 3]);
     /// # })
     /// ```
-    fn map_sent<U, F>(self, f: F) -> MapSent<Self, F>
+    fn map_sent<R, F>(self, f: F) -> MapSent<Self, Part, R, F>
     where
-        F: FnMut(Self::Recv) -> U,
+        F: FnMut(Self::Recv) -> R,
         Self: Sized,
     {
-        assert_writer::<Part, U, Self::Error, Self::Output, _>(MapSent::new(
+        assert_writer::<Part, R, Self::Error, Self::Output, _>(MapSent::new(
             self, f,
         ))
     }
 
     /// Map this writer's error type to a different value, returning a new
     /// multipart writer with the given error type.
-    fn map_err<E, F>(self, f: F) -> MapErr<Self, F>
+    fn map_err<E, F>(self, f: F) -> MapErr<Self, Part, E, F>
     where
         F: FnMut(Self::Error) -> E,
         Self: Sized,
@@ -468,12 +470,12 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
 
     /// Map this writer's output type to a different type, returning a new
     /// multipart writer with the given output type.
-    fn map_ok<U, F>(self, f: F) -> MapOk<Self, F>
+    fn map_ok<T, F>(self, f: F) -> MapOk<Self, Part, T, F>
     where
-        F: FnMut(Self::Output) -> U,
+        F: FnMut(Self::Output) -> T,
         Self: Sized,
     {
-        assert_writer::<Part, Self::Recv, Self::Error, U, _>(MapOk::new(
+        assert_writer::<Part, Self::Recv, Self::Error, T, _>(MapOk::new(
             self, f,
         ))
     }
@@ -527,13 +529,11 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     ///
     /// ```rust
     /// # futures::executor::block_on(async {
-    /// use std::io::Error as IoError;
-    ///
-    /// use futures::future;
     /// use multipart_write::{MultipartWriteExt as _, write};
     ///
-    /// let mut writer = write::from_extend::<u8, Vec<u8>>()
-    ///     .ready_part(|n| future::ready(Ok::<_, IoError>(n + 1_u8)));
+    /// let init: Vec<u8> = Vec::new();
+    /// let mut writer = write::extend(init)
+    ///     .ready_part(|n: u8| futures::future::ready(Ok(n + 1)));
     ///
     /// writer.send_flush(1).await.unwrap();
     /// writer.send_flush(2).await.unwrap();
@@ -543,14 +543,15 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// assert_eq!(out, vec![2, 3, 4]);
     /// # })
     /// ```
-    fn ready_part<U, E, Fut, F>(self, f: F) -> ReadyPart<Self, Part, Fut, F>
+    fn ready_part<P, Fut, F>(self, f: F) -> ReadyPart<Self, Part, P, Fut, F>
     where
-        F: FnMut(U) -> Fut,
-        Fut: Future<Output = Result<Part, E>>,
-        E: From<Self::Error>,
+        F: FnMut(P) -> Fut,
+        Fut: Future<Output = Result<Part, Self::Error>>,
         Self: Sized,
     {
-        assert_writer::<U, (), E, Self::Output, _>(ReadyPart::new(self, f))
+        assert_writer::<P, (), Self::Error, Self::Output, _>(ReadyPart::new(
+            self, f,
+        ))
     }
 
     /// A future that completes when a part has been fully processed into the
@@ -571,9 +572,8 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// # futures::executor::block_on(async {
     /// use multipart_write::{MultipartWriteExt as _, write};
     ///
-    /// // `from_extend` turns an impl of `std::iter::Extend` into a writer,
-    /// // here one that writes a `u8` and outputs a `Vec<u8>`.
-    /// let mut writer = write::from_extend::<u8, Vec<u8>>().then(|res| {
+    /// let init: Vec<u8> = Vec::new();
+    /// let mut writer = write::extend(init).then(|res| {
     ///     futures::future::ready(res.map(|vs| vs.iter().sum::<u8>()))
     /// });
     ///
@@ -585,7 +585,7 @@ pub trait MultipartWriteExt<Part>: MultipartWrite<Part> {
     /// assert_eq!(out, 6);
     /// # });
     /// ```
-    fn then<T, Fut, F>(self, f: F) -> Then<Self, Fut, F>
+    fn then<T, Fut, F>(self, f: F) -> Then<Self, Part, T, Fut, F>
     where
         F: FnMut(Result<Self::Output, Self::Error>) -> Fut,
         Fut: Future<Output = Result<T, Self::Error>>,

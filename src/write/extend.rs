@@ -1,49 +1,48 @@
+use std::convert::Infallible as Never;
 use std::fmt::{self, Debug, Formatter};
-use std::io::Error as IoError;
-use std::iter::Extend;
-use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use crate::{FusedMultipartWrite, MultipartWrite};
 
-/// Function that creates a `MultipartWrite` from a type that implements
-/// `std::iter::Extend<A> + Default` for some `A`.
-///
-/// `A` becomes the part type in the multipart writer.  This writer is always
-/// ready to receive a value.
-pub fn from_extend<A, T: Unpin + Default + Extend<A>>() -> FromExtend<A, T> {
-    FromExtend::new(Default::default())
+/// Returns a value that becomes a `MultipartWrite` over any `A` where `T:
+/// std::iter::Extend<A>`.
+pub fn extend<T: Unpin + Default>(init: T) -> Extend<T> {
+    Extend::new(init)
 }
 
-/// `MultipartWrite` for [`from_extend`].
-pub struct FromExtend<A, T> {
+/// [`extend`] but starts with the default value of `T`.
+pub fn extend_default<T: Unpin + Default>() -> Extend<T> {
+    Extend::new(T::default())
+}
+
+/// `MultipartWrite` for [`extend`].
+pub struct Extend<T> {
     inner: Option<T>,
-    _a: PhantomData<A>,
 }
 
-impl<A, T: Unpin + Default + Extend<A>> FromExtend<A, T> {
+impl<T: Unpin + Default> Extend<T> {
     fn new(inner: T) -> Self {
-        FromExtend { inner: Some(inner), _a: PhantomData }
+        Self { inner: Some(inner) }
     }
 }
 
-impl<A, T: Unpin + Default + Extend<A>> Unpin for FromExtend<A, T> {}
+impl<T: Unpin + Default> Unpin for Extend<T> {}
 
-impl<A, T> FusedMultipartWrite<A> for FromExtend<A, T>
+impl<A, T> FusedMultipartWrite<A> for Extend<T>
 where
-    T: Unpin + Default + Extend<A>,
+    T: Unpin + Default + std::iter::Extend<A>,
 {
     fn is_terminated(&self) -> bool {
         false
     }
 }
 
-impl<A, T> MultipartWrite<A> for FromExtend<A, T>
+impl<A, T> MultipartWrite<A> for Extend<T>
 where
-    T: Unpin + Default + Extend<A>,
+    T: Unpin + Default + std::iter::Extend<A>,
 {
-    type Error = IoError;
+    type Error = Never;
     type Output = T;
     type Recv = ();
 
@@ -84,11 +83,11 @@ where
     }
 }
 
-impl<A, T> Debug for FromExtend<A, T>
+impl<T> Debug for Extend<T>
 where
     T: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("FromExtend").field("inner", &self.inner).finish()
+        f.debug_struct("Extend").field("inner", &self.inner).finish()
     }
 }

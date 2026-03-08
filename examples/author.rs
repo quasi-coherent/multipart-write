@@ -212,25 +212,15 @@ impl Author<Line> {
         BookState { page_number: self.current_page, lines_written }
     }
 
-    /// Used primarily for helping type inference.  Since `MultipartWrite` is
-    /// generic over the part type, it is often not possible to infer various
-    /// types that appear in use.
-    fn boxed_author(
-        self,
-    ) -> BoxMultipartWrite<'static, Line, BookState, Book, String> {
-        self.boxed()
-    }
-
     /// This `MultipartWrite` augments the original implementation by reversing
     /// the input text before sending to the writer.  The result is a new writer
     /// that writes the same books but every line is backwards.
     fn reverse(self) -> BoxMultipartWrite<'static, Line, (), Book, String> {
-        self.boxed_author()
-            .ready_part(|line: Line| async move {
-                let rev = line.0.chars().rev().collect();
-                Ok(Line(rev))
-            })
-            .boxed()
+        self.ready_part(|line: Line| async move {
+            let rev = line.0.chars().rev().collect();
+            Ok(Line(rev))
+        })
+        .boxed()
     }
 
     /// This `MultipartWrite` takes a book that was just completed and then

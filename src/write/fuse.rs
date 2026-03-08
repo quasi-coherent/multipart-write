@@ -1,4 +1,5 @@
 use std::fmt::{self, Debug, Formatter};
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -9,17 +10,18 @@ use crate::{FusedMultipartWrite, MultipartWrite};
 pin_project_lite::pin_project! {
     /// `MultipartWrite` for [`fuse`](super::MultipartWriteExt::fuse).
     #[must_use = "futures do nothing unless polled"]
-    pub struct Fuse<Wr, F> {
+    pub struct Fuse<Wr, Part, F> {
         #[pin]
         writer: Wr,
         f: F,
         is_terminated: bool,
+        _p: PhantomData<Part>,
     }
 }
 
-impl<Wr, F> Fuse<Wr, F> {
+impl<Wr, Part, F> Fuse<Wr, Part, F> {
     pub(super) fn new(writer: Wr, f: F) -> Self {
-        Self { writer, f, is_terminated: false }
+        Self { writer, f, is_terminated: false, _p: PhantomData }
     }
 
     /// Consumes `Fuse`, returning the underlying writer.
@@ -47,9 +49,9 @@ impl<Wr, F> Fuse<Wr, F> {
     }
 }
 
-impl<Item, Wr, F> FusedMultipartWrite<Item> for Fuse<Wr, F>
+impl<Wr, Part, F> FusedMultipartWrite<Part> for Fuse<Wr, Part, F>
 where
-    Wr: MultipartWrite<Item>,
+    Wr: MultipartWrite<Part>,
     F: FnMut(&Wr::Output) -> bool,
 {
     fn is_terminated(&self) -> bool {
@@ -57,9 +59,9 @@ where
     }
 }
 
-impl<Item, Wr, F> MultipartWrite<Item> for Fuse<Wr, F>
+impl<Wr, Part, F> MultipartWrite<Part> for Fuse<Wr, Part, F>
 where
-    Wr: MultipartWrite<Item>,
+    Wr: MultipartWrite<Part>,
     F: FnMut(&Wr::Output) -> bool,
 {
     type Error = Wr::Error;
@@ -78,7 +80,7 @@ where
 
     fn start_send(
         self: Pin<&mut Self>,
-        part: Item,
+        part: Part,
     ) -> Result<Self::Recv, Self::Error> {
         if self.is_terminated {
             return Ok(None);
@@ -112,14 +114,13 @@ where
     }
 }
 
-impl<Wr, F> Debug for Fuse<Wr, F>
+impl<Wr, Part, F> Debug for Fuse<Wr, Part, F>
 where
     Wr: Debug,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Fuse")
             .field("writer", &self.writer)
-            .field("f", &"FnMut(&Wr::Output) -> bool")
             .field("is_terminated", &self.is_terminated)
             .finish()
     }

@@ -1,4 +1,5 @@
 use std::fmt::{self, Debug, Formatter};
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -11,18 +12,19 @@ pin_project_lite::pin_project! {
     ///
     /// [`for_each_recv`]: super::MultipartWriteExt::for_each_recv
     #[must_use = "futures do nothing unless polled"]
-    pub struct ForEachRecv<Wr, Fut, F> {
+    pub struct ForEachRecv<Wr, Part, Fut, F> {
         #[pin]
         writer: Wr,
         #[pin]
         fut: Option<Fut>,
         f: F,
+        _p: PhantomData<Part>,
     }
 }
 
-impl<Wr, Fut, F> ForEachRecv<Wr, Fut, F> {
+impl<Wr, Part, Fut, F> ForEachRecv<Wr, Part, Fut, F> {
     pub(super) fn new(writer: Wr, f: F) -> Self {
-        Self { writer, fut: None, f }
+        Self { writer, fut: None, f, _p: PhantomData }
     }
 
     /// Consumes `ForEachRecv`, returning the underlying writer.
@@ -50,7 +52,8 @@ impl<Wr, Fut, F> ForEachRecv<Wr, Fut, F> {
     }
 }
 
-impl<Wr, Part, Fut, F> FusedMultipartWrite<Part> for ForEachRecv<Wr, Fut, F>
+impl<Wr, Part, Fut, F> FusedMultipartWrite<Part>
+    for ForEachRecv<Wr, Part, Fut, F>
 where
     Wr: FusedMultipartWrite<Part>,
     Wr::Recv: Clone,
@@ -62,7 +65,7 @@ where
     }
 }
 
-impl<Wr, Part, Fut, F> MultipartWrite<Part> for ForEachRecv<Wr, Fut, F>
+impl<Wr, Part, Fut, F> MultipartWrite<Part> for ForEachRecv<Wr, Part, Fut, F>
 where
     Wr: MultipartWrite<Part>,
     Wr::Recv: Clone,
@@ -111,7 +114,7 @@ where
     }
 }
 
-impl<Wr, Fut, F> Debug for ForEachRecv<Wr, Fut, F>
+impl<Wr, Part, Fut, F> Debug for ForEachRecv<Wr, Part, Fut, F>
 where
     Wr: Debug,
     Fut: Debug,

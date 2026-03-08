@@ -1,4 +1,5 @@
 use std::fmt::{self, Debug, Formatter};
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -9,16 +10,17 @@ pin_project_lite::pin_project! {
     ///
     /// [`filter_part`]: super::MultipartWriteExt::filter_part
     #[must_use = "futures do nothing unless polled"]
-    pub struct FilterPart<Wr, F> {
+    pub struct FilterPart<Wr, Part, F> {
         #[pin]
         writer: Wr,
         f: F,
+        _p: PhantomData<fn(Part)>,
     }
 }
 
-impl<Wr, F> FilterPart<Wr, F> {
+impl<Wr, Part, F> FilterPart<Wr, Part, F> {
     pub(super) fn new(writer: Wr, f: F) -> Self {
-        Self { writer, f }
+        Self { writer, f, _p: PhantomData }
     }
 
     /// Consumes `FilterPart`, returning the underlying writer.
@@ -46,7 +48,7 @@ impl<Wr, F> FilterPart<Wr, F> {
     }
 }
 
-impl<Wr, F, Part> FusedMultipartWrite<Part> for FilterPart<Wr, F>
+impl<Wr, Part, F> FusedMultipartWrite<Part> for FilterPart<Wr, Part, F>
 where
     Wr: FusedMultipartWrite<Part>,
     F: FnMut(&Part) -> bool,
@@ -56,7 +58,7 @@ where
     }
 }
 
-impl<Wr, F, Part> MultipartWrite<Part> for FilterPart<Wr, F>
+impl<Wr, Part, F> MultipartWrite<Part> for FilterPart<Wr, Part, F>
 where
     Wr: MultipartWrite<Part>,
     F: FnMut(&Part) -> bool,
@@ -99,7 +101,7 @@ where
     }
 }
 
-impl<Wr: Debug, F> Debug for FilterPart<Wr, F> {
+impl<Wr: Debug, Part, F> Debug for FilterPart<Wr, Part, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("FilterPart").field("writer", &self.writer).finish()
     }

@@ -1,4 +1,5 @@
 use std::fmt::{self, Debug, Formatter};
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -9,18 +10,19 @@ use crate::{FusedMultipartWrite, MultipartWrite};
 pin_project_lite::pin_project! {
     /// `MultipartWrite` for [`then`](super::MultipartWriteExt::then).
     #[must_use = "futures do nothing unless polled"]
-    pub struct Then<Wr, Fut, F> {
+    pub struct Then<Wr, Part, T, Fut, F> {
         #[pin]
         writer: Wr,
         #[pin]
         fut: Option<Fut>,
         f: F,
+        _p: PhantomData<fn(Part) -> T>,
     }
 }
 
-impl<Wr, Fut, F> Then<Wr, Fut, F> {
+impl<Wr, Part, T, Fut, F> Then<Wr, Part, T, Fut, F> {
     pub(super) fn new(writer: Wr, f: F) -> Self {
-        Self { writer, fut: None, f }
+        Self { writer, fut: None, f, _p: PhantomData }
     }
 
     /// Consumes `Then`, returning the underlying writer.
@@ -48,7 +50,8 @@ impl<Wr, Fut, F> Then<Wr, Fut, F> {
     }
 }
 
-impl<Wr, Fut, F, Part, T> FusedMultipartWrite<Part> for Then<Wr, Fut, F>
+impl<Wr, Part, T, Fut, F> FusedMultipartWrite<Part>
+    for Then<Wr, Part, T, Fut, F>
 where
     Wr: FusedMultipartWrite<Part>,
     F: FnMut(Result<Wr::Output, Wr::Error>) -> Fut,
@@ -59,7 +62,7 @@ where
     }
 }
 
-impl<Wr, Fut, F, Part, T> MultipartWrite<Part> for Then<Wr, Fut, F>
+impl<Wr, Part, T, Fut, F> MultipartWrite<Part> for Then<Wr, Part, T, Fut, F>
 where
     Wr: MultipartWrite<Part>,
     F: FnMut(Result<Wr::Output, Wr::Error>) -> Fut,
@@ -111,7 +114,7 @@ where
     }
 }
 
-impl<Wr, Fut, F> Debug for Then<Wr, Fut, F>
+impl<Wr, Part, T, Fut, F> Debug for Then<Wr, Part, T, Fut, F>
 where
     Wr: Debug,
     Fut: Debug,
