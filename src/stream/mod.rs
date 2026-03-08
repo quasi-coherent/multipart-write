@@ -33,8 +33,7 @@ pub trait MultipartStreamExt: Stream {
     ///     Ok(vs.iter().sum::<u8>())
     /// });
     ///
-    /// let vs: Vec<u8> = (1..=5).collect();
-    /// let output = futures::stream::iter(vs)
+    /// let output = futures::stream::iter(1..=5)
     ///     .complete_with(writer)
     ///     .await;
     ///
@@ -69,7 +68,7 @@ pub trait MultipartStreamExt: Stream {
     /// use std::sync::Arc;
     /// use std::sync::atomic::{AtomicU8, Ordering};
     ///
-    /// use futures::TryStreamExt as _;
+    /// use futures::stream::{self, TryStreamExt as _};
     /// use multipart_write::{
     ///     MultipartStreamExt as _, MultipartWriteExt as _, write,
     /// };
@@ -85,7 +84,7 @@ pub trait MultipartStreamExt: Stream {
     ///     Ok(vs.iter().sum::<u8>())
     /// });
     ///
-    /// let output = futures::stream::iter(1..=10)
+    /// let output = stream::iter(1..=10)
     ///     .try_complete_when(writer, |_| {
     ///         let cnt = Arc::clone(&counter);
     ///         let n = cnt.fetch_add(1, Ordering::SeqCst);
