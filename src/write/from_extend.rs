@@ -7,13 +7,16 @@ use std::task::{Context, Poll};
 
 use crate::{FusedMultipartWrite, MultipartWrite};
 
-/// Function that constructs a `MultipartWrite` from any value that has a
-/// default and implements [`std::iter::Extend`].
+/// Function that creates a `MultipartWrite` from a type that implements
+/// `std::iter::Extend<A> + Default` for some `A`.
+///
+/// `A` becomes the part type in the multipart writer.  This writer is always
+/// ready to receive a value.
 pub fn from_extend<A, T: Unpin + Default + Extend<A>>() -> FromExtend<A, T> {
     FromExtend::new(Default::default())
 }
 
-/// `MultipartWrite` for the function `from_extend`.
+/// `MultipartWrite` for [`from_extend`].
 pub struct FromExtend<A, T> {
     inner: Option<T>,
     _a: PhantomData<A>,

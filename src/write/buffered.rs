@@ -8,9 +8,7 @@ use futures_core::ready;
 use crate::{FusedMultipartWrite, MultipartWrite};
 
 pin_project_lite::pin_project! {
-    /// `MultipartWrite` for the [`buffered`] method.
-    ///
-    /// [`buffered`]: super::MultipartWriteExt::buffered
+    /// `MultipartWrite` for [`buffered`](super::MultipartWriteExt::buffered).
     #[must_use = "futures do nothing unless polled"]
     pub struct Buffered<Wr: MultipartWrite<Part>, Part> {
         #[pin]

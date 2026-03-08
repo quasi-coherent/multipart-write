@@ -1,7 +1,7 @@
 //! Using `MultipartWrite` with streams.
 //!
 //! This module contains the extension [`MultipartStreamExt`] that has adapters
-//! for composing `MultipartWrite` with streams.
+//! for using a `MultipartWrite` with a stream.
 use futures_core::stream::Stream;
 
 use crate::{FusedMultipartWrite, MultipartWrite};
@@ -75,9 +75,9 @@ pub trait MultipartStreamExt: Stream {
     /// };
     ///
     /// // The associated `Recv` type for the `FromExtend` writer is (), so
-    /// // there's nothing to decide when to stop and complete a part.  So here
-    /// // we keep a counter for the purpose of writing out a part every third
-    /// // item in the stream.
+    /// // there's nothing to decide when to stop and complete a part.  So in
+    /// // this contrived example a counter is used to complete the writer every
+    /// // third item in the stream.
     /// let counter = Arc::new(AtomicU8::new(1));
     ///
     /// let writer = write::from_extend::<u8, Vec<u8>>().then(|res| async move {

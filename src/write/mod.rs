@@ -1,7 +1,7 @@
 //! `MultipartWrite` combinators.
 //!
 //! This module contains the trait [`MultipartWriteExt`], which provides
-//! adapters for chaining and composing `MultipartWrite`rs.
+//! adapters for chaining and composing writers.
 use crate::{
     BoxFusedMultipartWrite, BoxMultipartWrite, FusedMultipartWrite,
     LocalBoxFusedMultipartWrite, LocalBoxMultipartWrite, MultipartWrite,
@@ -58,9 +58,6 @@ pub use map_sent::MapSent;
 
 mod ready_part;
 pub use ready_part::ReadyPart;
-
-mod resolve;
-pub use resolve::{Resolve, resolve};
 
 mod send_flush;
 pub use send_flush::SendFlush;
